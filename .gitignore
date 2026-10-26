@@ -1,0 +1,13 @@
+# Real identity documents must never be committed.
+samples/
+out/
+*.pdf
+*.jpg
+*.jpeg
+*.png
+!tests/fixtures/*.png
+
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
