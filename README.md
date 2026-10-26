@@ -32,9 +32,12 @@ pvccard DOC.pdf -o out/                 # auto-detects the document type
 pvccard AADHAAR.pdf -p ABCD1990 -o out/ # password-protected PDFs
 pvccard DOC.pdf --cmyk                  # CMYK JPEGs for print shops
 pvccard DOC.pdf --fit contain           # keep proportions, pad with white
+pvccard DOC.pdf --square                # no rounded corners
 ```
 
-Output: `<name>_front.jpg`, `<name>_back.jpg`, `<name>_card.pdf`.
+Output per side: `<name>_front.png` / `_back.png` (rounded 3.18 mm corners,
+transparent outside), `<name>_front.jpg` / `_back.jpg` (same, corners white),
+plus `<name>_card.pdf`.
 
 ## Tests
 

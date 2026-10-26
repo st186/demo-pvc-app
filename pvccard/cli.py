@@ -18,6 +18,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--fit", choices=["stretch", "contain"], default="stretch")
     ap.add_argument("--cmyk", action="store_true", help="save JPEGs in CMYK")
+    ap.add_argument("--square", action="store_true",
+                    help="keep square corners (default: 3.18 mm rounded, like a real card)")
     args = ap.parse_args(argv)
 
     failed = False
@@ -28,7 +30,8 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{path.name}: {e}", file=sys.stderr)
             failed = True
             continue
-        files = save_card(card, args.out, path.stem, args.dpi, args.fit, args.cmyk)
+        files = save_card(card, args.out, path.stem, args.dpi, args.fit, args.cmyk,
+                          rounded=not args.square)
         print(f"{path.name} [{card.doc_type}] -> " + ", ".join(f.name for f in files))
     sys.exit(1 if failed else 0)
 
