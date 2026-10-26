@@ -26,9 +26,9 @@ def scan_png() -> bytes:
     return buf.getvalue()
 
 
-def png_bytes(color: str) -> bytes:
+def png_bytes(color: str, dpi: int = 300) -> bytes:
     buf = io.BytesIO()
-    Image.new("RGBA", card_px(300), color).save(buf, "PNG")
+    Image.new("RGBA", card_px(dpi), color).save(buf, "PNG")
     return buf.getvalue()
 
 
@@ -50,8 +50,16 @@ def test_open_then_crop_scan():
     cropped = client.post("/api/crop", files=files, data=data).json()
     for side in ("front", "back"):
         img = Image.open(io.BytesIO(base64.b64decode(cropped[side].split(",")[1])))
-        assert img.size == card_px(300)
+        assert img.size == card_px(600)  # HD by default
         assert img.getpixel((0, 0))[3] == 0  # rounded corner is transparent
+
+
+def test_crop_standard_quality():
+    opened = client.post("/api/open", files={"file": ("scan.png", scan_png(), "image/png")}).json()
+    r = client.post("/api/crop", files={"file": ("scan.png", scan_png(), "image/png")},
+                    data={"front": json.dumps(opened["front"]), "dpi": "300", "sharpen": "false"})
+    img = Image.open(io.BytesIO(base64.b64decode(r.json()["front"].split(",")[1])))
+    assert img.size == card_px(300)
 
 
 def test_crop_rejects_bad_box():
@@ -78,6 +86,10 @@ def test_export_formats():
 
     r = client.post("/api/export", files=files, data={"format": "pdf"})
     assert r.content.startswith(b"%PDF")
+
+    hd = [("files", ("b__front.png", png_bytes("red", 600), "image/png"))]
+    img = Image.open(io.BytesIO(client.post("/api/export", files=hd, data={"format": "jpg"}).content))
+    assert img.size == card_px(600) and img.info["dpi"] == (600, 600)
 
 
 def test_export_rejects_wrong_size():

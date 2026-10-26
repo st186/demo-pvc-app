@@ -14,6 +14,8 @@ const state = {
   zoom: 1,
   preset: "auto",          // preset for new uploads
   color: "rgb",
+  dpi: 600,                // HD by default; 300 = standard
+  sharpen: true,
   types: [],
 };
 let nextId = 1;
@@ -535,6 +537,8 @@ async function cropItem(item) {
   body.append("front", JSON.stringify(item.front));
   if (item.back) body.append("back", JSON.stringify(item.back));
   body.append("fit", item.fit);
+  body.append("dpi", state.dpi);
+  body.append("sharpen", state.sharpen);
   const data = await (await api("/api/crop", body)).json();
   item.result = {
     front: await loadImageData(data.front),
@@ -595,6 +599,7 @@ function renderPreview() {
     const r = state.active?.result?.[state.previewSide];
     if (!r) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (canvas.width !== r.width) Object.assign(canvas, { width: r.width, height: r.height });
     ctx.putImageData(adjusted(r, state.active.adj), 0, 0);
   });
 }
@@ -668,11 +673,22 @@ segmented($("fit-mode"), "fit", (v) => {
 });
 segmented($("color-mode"), "color", (v) => (state.color = v));
 
+// Quality and sharpening apply when cropping, so re-crop what is already done.
+function recropAll() {
+  for (const i of state.items) if (i.status === "cropped") i.dirty = true;
+  renderBar();
+  if (state.active?.status === "cropped") cropSelected();
+}
+segmented($("quality-mode"), "dpi", (v) => { state.dpi = Number(v); recropAll(); });
+segmented($("sharpen-mode"), "sharpen", (v) => { state.sharpen = v === "on"; recropAll(); });
+
 // ---------- action bar, downloads, print ----------
 
 function renderBar() {
   const item = state.active;
   $("doc-name").textContent = item ? item.name : "No document loaded";
+  const px = item?.result?.front;
+  $("doc-size").textContent = px ? `${px.width}×${px.height} px` : state.dpi === 600 ? "2022×1275 px" : "1011×638 px";
   const status = !item ? "Upload in Column 1"
     : item.status === "busy" ? "Opening…"
     : item.status === "locked" ? "Password required"

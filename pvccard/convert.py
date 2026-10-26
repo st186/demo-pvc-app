@@ -14,7 +14,7 @@ from pathlib import Path
 import pypdfium2 as pdfium
 from PIL import Image
 
-from .card import Card, card_px
+from .card import DEFAULT_DPI, Card, card_px
 from .detect import find_cards
 from .recipes import BY_NAME, Box, inspect, pick
 
@@ -109,7 +109,7 @@ class Document:
             return Suggestion("manual", "Unknown document", Side(0, FULL), None)
         return Suggestion("scan", "Scanned document", sides[0], sides[1] if len(sides) > 1 else None)
 
-    def crop(self, side: Side, dpi: int = 300) -> Image.Image:
+    def crop(self, side: Side, dpi: int = DEFAULT_DPI) -> Image.Image:
         x0, y0, x1, y1 = side.box
         if not self.is_pdf:
             w, h = self.image.size
@@ -129,7 +129,7 @@ class Document:
 
 
 def convert(path: str | Path, password: str | None = None, doc_type: str = "auto",
-            dpi: int = 300, data: bytes | None = None) -> Card:
+            dpi: int = DEFAULT_DPI, data: bytes | None = None) -> Card:
     """Auto-crop a file on disk, or in-memory `data` (then `path` only names it)."""
     doc = Document(data, str(path), password) if data else Document.from_path(path, password)
     s = doc.suggest(doc_type)

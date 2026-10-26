@@ -1,8 +1,19 @@
 # pvccard
 
 Turns downloaded Indian government ID PDFs into print-ready PVC card files:
-front and back as separate CR80 (85.6 × 54 mm) JPEGs at 300 DPI
-(1011 × 638 px), plus a 2-page PDF.
+front and back as separate CR80 (85.6 × 54 mm) JPEGs, plus a 2-page PDF.
+Default output is HD 600 DPI (2022 × 1275 px); `--dpi 300` gives the
+standard 1011 × 638 px.
+
+### Quality
+
+Most of these PDFs draw names, numbers and lines as vector text, so HD
+renders them at true 600 DPI rather than enlarging a 300 DPI image. Embedded
+pictures (photos, QR codes, card backgrounds, image-only scans) are limited to
+what the government file contains, usually 200–300 DPI; a light unsharp mask
+(on by default, `--no-sharpen` to skip) makes them crisper. AI upscaling is
+deliberately not used: it can invent detail, which is unacceptable for the
+digits and photos on an identity document.
 
 ## Supported documents
 
@@ -37,7 +48,8 @@ uvicorn pvccard.web:app --port 8000
   to move, drag handles to resize (corners keep the card shape), Auto-Snap
   restores the detected boxes, zoom and multi-page switching.
 - **Live Preview**: rounded-corner CR80 preview with brightness, contrast,
-  saturation and Auto-Enhance; fill or keep-ratio fitting; RGB or CMYK JPEGs.
+  saturation and Auto-Enhance; HD 600 / 300 DPI, sharpening on/off, fill or
+  keep-ratio fitting, RGB or CMYK JPEGs.
 - **Downloads / Print**: front or back JPEG, Download All (JPEGs + PDF per
   card, for every selected card), or print straight to a CR80 card printer.
 
@@ -58,6 +70,7 @@ pvccard AADHAAR.pdf -p ABCD1990 -o out/ # password-protected PDFs
 pvccard DOC.pdf --cmyk                  # CMYK JPEGs for print shops
 pvccard DOC.pdf --fit contain           # keep proportions, pad with white
 pvccard DOC.pdf --square                # no rounded corners
+pvccard DOC.pdf --dpi 300 --no-sharpen  # standard quality, no sharpening
 ```
 
 Output per side: `<name>_front.png` / `_back.png` (rounded 3.18 mm corners,

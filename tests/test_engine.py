@@ -11,7 +11,7 @@ import pytest
 from PIL import Image, ImageDraw
 
 from pvccard import convert, save_card
-from pvccard.card import card_px, round_corners
+from pvccard.card import DEFAULT_DPI, card_px, round_corners
 from pvccard.detect import find_cards
 
 SAMPLES = Path(os.environ.get("PVC_SAMPLES", "samples"))
@@ -44,6 +44,7 @@ def test_round_corners():
 
 def test_card_px():
     assert card_px(300) == (1011, 638)
+    assert card_px(600) == (2022, 1275)
 
 
 @pytest.mark.parametrize("name", CASES)
@@ -59,4 +60,4 @@ def test_sample(name, tmp_path):
     images = [f for f in files if f.suffix != ".pdf"]
     assert len(images) == 4  # front/back as PNG (transparent corners) and JPEG
     for f in images:
-        assert Image.open(f).size == (1011, 638)
+        assert Image.open(f).size == card_px(DEFAULT_DPI)

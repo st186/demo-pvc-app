@@ -19,12 +19,12 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
-from .card import card_px, fit_to_card, on_white, round_corners
+from .card import DEFAULT_DPI, card_px, fit_to_card, on_white, round_corners
 from .convert import Document, PasswordRequired, Side
 from .recipes import BY_NAME, RECIPES
 
 MAX_UPLOAD = 15 * 1024 * 1024
-DPI = 300
+QUALITIES = (300, 600)  # standard, HD
 STATIC = Path(__file__).parent / "static"
 
 PASSWORD_HINTS = {
@@ -48,7 +48,7 @@ def _api_error(_, e: ApiError) -> JSONResponse:
 
 def _data_url(img: Image.Image, fmt: str = "PNG") -> str:
     buf = io.BytesIO()
-    img.save(buf, fmt, **({"quality": 85} if fmt == "JPEG" else {"dpi": (DPI, DPI)}))
+    img.save(buf, fmt, **({"quality": 85} if fmt == "JPEG" else {}))
     return f"data:image/{fmt.lower()};base64," + base64.b64encode(buf.getvalue()).decode()
 
 
@@ -108,15 +108,19 @@ def open_document(file: UploadFile = File(...), password: str = Form(""),
 
 @app.post("/api/crop")
 def crop(file: UploadFile = File(...), password: str = Form(""), front: str = Form(...),
-         back: str = Form(""), fit: str = Form("stretch")):
+         back: str = Form(""), fit: str = Form("stretch"), dpi: int = Form(DEFAULT_DPI),
+         sharpen: bool = Form(True)):
     """Render the chosen boxes as CR80 card images with rounded corners."""
     if fit not in ("stretch", "contain"):
         raise ApiError(400, "bad_fit", "fit must be stretch or contain")
+    if dpi not in QUALITIES:
+        raise ApiError(400, "bad_dpi", "dpi must be 300 or 600")
     doc = _open(file, password)
     out = {}
     for name, raw in (("front", front), ("back", back)):
         side = _side(raw, doc)
-        out[name] = side and _data_url(round_corners(fit_to_card(doc.crop(side, DPI), DPI, fit), DPI))
+        out[name] = side and _data_url(
+            round_corners(fit_to_card(doc.crop(side, dpi), dpi, fit, sharpen), dpi))
     return out
 
 
@@ -141,23 +145,26 @@ def export(files: list[UploadFile] = File(...), format: str = Form("zip"),
     if format not in ("jpg", "pdf", "zip"):
         raise ApiError(400, "bad_format", "format must be jpg, pdf or zip")
     cards: dict[str, dict[str, Image.Image]] = {}
+    sizes = {card_px(q): q for q in QUALITIES}
+    dpi = None
     for f in files[:100]:
         stem, _, side = (f.filename or "").removesuffix(".png").rpartition("__")
         if side not in ("front", "back"):
             raise ApiError(400, "bad_name", "Files must be named <card>__front.png / __back.png")
         img = Image.open(io.BytesIO(f.file.read(MAX_UPLOAD)))
-        if img.size != card_px(DPI):
-            raise ApiError(400, "bad_size", "Card images must be CR80 at 300 DPI")
+        if img.size not in sizes or (dpi and sizes[img.size] != dpi):
+            raise ApiError(400, "bad_size", "Card images must all be CR80 at 300 or 600 DPI")
+        dpi = sizes[img.size]
         cards.setdefault(_safe(stem), {})[side] = on_white(img.convert("RGBA"))
 
     def jpeg(img: Image.Image) -> bytes:
         buf = io.BytesIO()
-        (img.convert("CMYK") if cmyk else img).save(buf, "JPEG", quality=95, dpi=(DPI, DPI), subsampling=0)
+        (img.convert("CMYK") if cmyk else img).save(buf, "JPEG", quality=95, dpi=(dpi, dpi), subsampling=0)
         return buf.getvalue()
 
     def pdf(pages: list[Image.Image]) -> bytes:
         buf = io.BytesIO()
-        pages[0].save(buf, "PDF", resolution=DPI, save_all=True, append_images=pages[1:])
+        pages[0].save(buf, "PDF", resolution=dpi, save_all=True, append_images=pages[1:])
         return buf.getvalue()
 
     ordered = [(name, side, sides[side]) for name, sides in cards.items()
