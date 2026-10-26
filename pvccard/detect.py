@@ -8,17 +8,23 @@ from PIL import Image
 
 from .card import CARD_ASPECT
 
+WORK_PX = 1200
+
 
 def find_cards(img: Image.Image, max_cards: int = 2,
                aspect_tol: float = 0.12, min_area: float = 0.02) -> list[tuple[int, int, int, int]]:
     """Return up to `max_cards` boxes (x0, y0, x1, y1) in reading order.
 
     Cards are found as large non-white blobs whose shape is close to CR80.
+    Detection runs at a fixed working size so results don't depend on the
+    input resolution.
     """
-    g = np.array(img.convert("L"))
+    k = WORK_PX / max(img.size)
+    small = img.convert("L").resize((round(img.width * k), round(img.height * k)), Image.BILINEAR)
+    g = np.array(small)
     H, W = g.shape
     mask = (g < 235).astype(np.uint8) * 255
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     boxes = []
@@ -30,7 +36,11 @@ def find_cards(img: Image.Image, max_cards: int = 2,
         if abs(aspect - CARD_ASPECT) / CARD_ASPECT <= aspect_tol:
             boxes.append((x, y, x + w, y + h))
 
-    boxes = sorted(boxes, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]), reverse=True)[:max_cards]
+    # Prefer landscape cards, then bigger ones.
+    boxes.sort(key=lambda b: (b[2] - b[0] < b[3] - b[1], -(b[2] - b[0]) * (b[3] - b[1])))
+    boxes = boxes[:max_cards]
     # Front first: top-to-bottom rows, then left-to-right.
     row = max(1, H // 20)
-    return sorted(boxes, key=lambda b: (b[1] // row, b[0]))
+    boxes.sort(key=lambda b: (b[1] // row, b[0]))
+    return [tuple(min(round(v / k), lim) for v, lim in zip(b, (img.width, img.height) * 2))
+            for b in boxes]

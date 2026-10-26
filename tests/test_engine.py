@@ -28,7 +28,11 @@ def test_find_cards_side_by_side():
     d.rectangle((100, 100, 900, 604), fill=(200, 60, 60))     # front
     d.rectangle((1000, 100, 1800, 604), fill=(60, 60, 200))   # back
     d.rectangle((100, 900, 1800, 1000), fill="black")         # not card-shaped
-    assert find_cards(img) == [(100, 100, 901, 605), (1000, 100, 1801, 605)]
+    found = find_cards(img)
+    expected = [(100, 100, 901, 605), (1000, 100, 1801, 605)]
+    assert len(found) == 2
+    for box, want in zip(found, expected):
+        assert all(abs(a - b) <= 4 for a, b in zip(box, want)), (box, want)
 
 
 def test_round_corners():

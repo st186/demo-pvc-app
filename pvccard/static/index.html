@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PVC Card Studio</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='1' y='4' width='22' height='16' rx='3' fill='%23f7931a'/%3E%3Cpath d='M1 10h22' stroke='%231d0f00' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <!-- Inline icon set (Lucide-style strokes) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7l10-5Z"/><path d="m2 12 10 5 10-5"/><path d="m2 17 10 5 10-5"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z"/></symbol>
+      <symbol id="i-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></symbol>
+      <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"/><path d="M12 12v9M8 16l4-4 4 4"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></symbol>
+      <symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></symbol>
+      <symbol id="i-wand" viewBox="0 0 24 24"><path d="m15 4-11 11 5 5 11-11-5-5Z"/><path d="M15 4l5 5M18 2v2M22 6h-2M21 2l-1 1"/></symbol>
+      <symbol id="i-zoom-in" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></symbol>
+      <symbol id="i-zoom-out" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M8 11h6"/></symbol>
+      <symbol id="i-fit" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+      <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 2.7 6.3 8.4a8 8 0 1 0 11.4 0L12 2.7Z"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+      <symbol id="i-printer" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+      <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+      <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo"><svg><use href="#i-card"/></svg></div>
+      <div>
+        <div class="brand-name">PVC<span>STUDIO</span></div>
+        <div class="brand-sub">Govt ID → PVC card</div>
+      </div>
+      <span class="chip">v0.2</span>
+    </div>
+    <div class="tool-pill"><svg><use href="#i-scissors"/></svg> PVC Card Maker</div>
+    <div class="top-actions">
+      <span class="privacy" title="Files are processed in memory and never stored">
+        <svg><use href="#i-shield"/></svg><span>Private · nothing stored</span>
+      </span>
+    </div>
+  </header>
+
+  <main class="studio">
+    <!-- Column 1: uploads & queue -->
+    <section class="col" id="col-queue">
+      <div class="col-head">
+        <div class="icon-tile"><svg><use href="#i-layers"/></svg></div>
+        <div class="col-title">
+          <h2>Uploads &amp; Queue</h2>
+          <div class="sub teal" id="queue-count">0 files in queue</div>
+        </div>
+        <button class="btn btn-accent btn-sm" id="add-btn"><svg><use href="#i-plus"/></svg>Add</button>
+      </div>
+
+      <div class="preset">
+        <div class="label-accent"><svg><use href="#i-sparkles"/></svg>Card Preset &amp; Template</div>
+        <div class="dropdown" id="preset">
+          <button class="dropdown-btn" id="preset-btn" aria-haspopup="listbox">
+            <span class="icon-tile sm"><svg><use href="#i-card"/></svg></span>
+            <span class="dd-text"><b id="preset-label">Auto-detect</b><small id="preset-desc">Recognise the document automatically</small></span>
+            <svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <ul class="dropdown-list" id="preset-list" role="listbox" hidden></ul>
+        </div>
+      </div>
+
+      <div class="queue-tools" id="queue-tools" hidden>
+        <label class="checkbox"><input type="checkbox" id="select-all"><span class="box"><svg><use href="#i-check"/></svg></span><span id="select-all-label">Select All</span></label>
+        <button class="btn btn-danger btn-sm" id="clear-btn"><svg><use href="#i-trash"/></svg>Clear</button>
+      </div>
+
+      <div class="queue" id="queue"></div>
+
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png" multiple hidden>
+        <div class="icon-tile lg"><svg><use href="#i-upload"/></svg></div>
+        <h3>Upload PDFs / Images</h3>
+        <p>Drag &amp; drop 10+ cards at once or click to browse</p>
+        <span class="btn btn-accent btn-sm">Browse Files</span>
+        <small>Aadhaar · PAN · Ayushman · ABHA · Voter ID · Ration · DL</small>
+      </label>
+
+      <button class="add-more" id="add-more" hidden><svg><use href="#i-plus"/></svg>Add More Files</button>
+    </section>
+
+    <!-- Column 2: cropper workspace -->
+    <section class="col" id="col-work">
+      <div class="work-tools" id="work-tools" hidden>
+        <div class="seg">
+          <button data-edit="front" class="on"><svg><use href="#i-scissors"/></svg>Front Side</button>
+          <button data-edit="back"><svg><use href="#i-scissors"/></svg>Back Side</button>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="auto-snap"><svg><use href="#i-wand"/></svg>Auto-Snap</button>
+        <div class="seg pages" id="page-tabs"></div>
+        <div class="zoom">
+          <button id="zoom-out" aria-label="Zoom out"><svg><use href="#i-zoom-out"/></svg></button>
+          <span id="zoom-val">100%</span>
+          <button id="zoom-in" aria-label="Zoom in"><svg><use href="#i-zoom-in"/></svg></button>
+          <button id="zoom-fit" class="fit"><svg><use href="#i-fit"/></svg>Fit</button>
+        </div>
+      </div>
+      <div class="stage-wrap" id="stage-wrap">
+        <div class="stage" id="stage" hidden>
+          <img id="page-img" alt="Document page" draggable="false">
+          <div class="crop-box" data-side="front"></div>
+          <div class="crop-box" data-side="back"></div>
+        </div>
+        <div class="empty-state" id="work-empty">
+          <div class="icon-tile lg"><svg><use href="#i-file"/></svg></div>
+          <h3>Document Cropper Workspace</h3>
+          <p>Upload or select a card in <b>Column 1</b> to crop front and back sides.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Column 3: live preview & adjustments -->
+    <section class="col" id="col-preview">
+      <div class="col-head">
+        <div class="icon-tile"><svg><use href="#i-card"/></svg></div>
+        <h2>Live Preview</h2>
+        <div class="seg sm" id="preview-side">
+          <button data-side="front" class="on">Front Side</button>
+          <button data-side="back">Back Side</button>
+        </div>
+      </div>
+
+      <div class="preview-box" id="preview-box">
+        <canvas id="preview-canvas" width="1011" height="638" hidden></canvas>
+        <div class="empty-state small" id="preview-empty">
+          <div class="icon-tile accent"><svg><use href="#i-scissors"/></svg></div>
+          <h4 id="preview-empty-title">No Document Loaded</h4>
+          <p id="preview-empty-text">Select or upload a file in Column 1.</p>
+        </div>
+      </div>
+
+      <div class="badges" id="badges" hidden>
+        <span class="badge teal"><svg><use href="#i-check-circle"/></svg>CR80 PVC (54 × 86 mm)</span>
+        <span class="badge gold">3.18mm Corner Radius</span>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <svg class="teal"><use href="#i-sliders"/></svg>
+          <h3>Print Adjustments</h3>
+          <button class="btn btn-ghost btn-sm" id="auto-enhance"><svg><use href="#i-sparkles"/></svg>Auto-Enhance</button>
+        </div>
+        <div class="slider">
+          <div class="slider-top"><span><svg><use href="#i-sun"/></svg>Brightness</span><b class="coral" id="brightness-val">0%</b></div>
+          <input type="range" id="brightness" min="-50" max="50" value="0" class="coral">
+        </div>
+        <div class="slider">
+          <div class="slider-top"><span><svg><use href="#i-sliders"/></svg>Contrast</span><b class="teal" id="contrast-val">0%</b></div>
+          <input type="range" id="contrast" min="-50" max="50" value="0" class="teal">
+        </div>
+        <div class="slider">
+          <div class="slider-top"><span><svg><use href="#i-drop"/></svg>Saturation</span><b class="gold" id="saturation-val">0%</b></div>
+          <input type="range" id="saturation" min="-50" max="50" value="0" class="gold">
+        </div>
+        <button class="link" id="reset-adj">Reset</button>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><svg class="teal"><use href="#i-card"/></svg><h3>Output</h3></div>
+        <div class="opt-row">
+          <span>Fit to card</span>
+          <div class="seg sm" id="fit-mode">
+            <button data-fit="stretch" class="on">Fill</button>
+            <button data-fit="contain">Keep ratio</button>
+          </div>
+        </div>
+        <div class="opt-row">
+          <span>JPEG colour</span>
+          <div class="seg sm" id="color-mode">
+            <button data-color="rgb" class="on">RGB</button>
+            <button data-color="cmyk">CMYK</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="actionbar">
+    <div class="doc-info">
+      <div class="icon-tile"><svg><use href="#i-file"/></svg></div>
+      <div>
+        <b id="doc-name">No document loaded</b>
+        <small><span class="gold" id="doc-size">1011×638 px</span> · <span id="doc-status">Upload in Column 1</span></small>
+      </div>
+    </div>
+    <div class="actions">
+      <div class="dl-row" id="dl-row" hidden>
+        <button class="btn btn-dark" id="dl-all"><svg><use href="#i-download"/></svg>Download All</button>
+        <button class="btn btn-dark" id="dl-front"><svg><use href="#i-download"/></svg>Front</button>
+        <button class="btn btn-dark" id="dl-back"><svg><use href="#i-download"/></svg>Back</button>
+      </div>
+      <button class="btn btn-big" id="crop-btn" disabled><svg><use href="#i-scissors"/></svg><span>Crop Card</span></button>
+      <button class="btn btn-big" id="print-btn" hidden><svg><use href="#i-printer"/></svg>Print PVC Card</button>
+    </div>
+  </footer>
+
+  <!-- Password modal -->
+  <div class="modal-backdrop" id="pw-modal" hidden>
+    <form class="modal" id="pw-form" autocomplete="off">
+      <div class="modal-head">
+        <div class="icon-tile accent"><svg><use href="#i-lock"/></svg></div>
+        <div>
+          <h3>Password Protected PDF</h3>
+          <p class="teal" id="pw-file">This document requires an unlock password</p>
+        </div>
+        <button type="button" class="icon-btn" id="pw-close" aria-label="Close"><svg><use href="#i-x"/></svg></button>
+      </div>
+      <label for="pw-input">Enter PDF Password</label>
+      <div class="input-icon">
+        <svg><use href="#i-key"/></svg>
+        <input id="pw-input" type="password" placeholder="e.g. First 4 Letters + Birth Year">
+      </div>
+      <p class="hint" id="pw-hint">For e-Aadhaar, the password is usually the first 4 capital letters of the name + year of birth (e.g. <b>ANIS1995</b>). For e-PAN, it is the date of birth as DDMMYYYY.</p>
+      <p class="error" id="pw-error" hidden></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-text" id="pw-cancel">Cancel</button>
+        <button type="submit" class="btn btn-accent" id="pw-submit" disabled>Unlock PDF</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+  <iframe id="print-frame" title="print"></iframe>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

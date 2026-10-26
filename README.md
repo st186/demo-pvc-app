@@ -23,7 +23,32 @@ e-Ration card) draw the holder's details as text on top of a blank card image.
 
 The tool only crops and resizes. It never edits the content of a document.
 
-## Usage
+## Web app (PVC Card Studio)
+
+```bash
+pip install -e .[web,dev]
+uvicorn pvccard.web:app --port 8000
+# open http://localhost:8000
+```
+
+- **Uploads & Queue**: drop many PDFs/images at once; password-protected PDFs
+  ask for their password. Pick a card preset or leave it on auto-detect.
+- **Cropper Workspace**: the detected front/back boxes sit on the page; drag
+  to move, drag handles to resize (corners keep the card shape), Auto-Snap
+  restores the detected boxes, zoom and multi-page switching.
+- **Live Preview**: rounded-corner CR80 preview with brightness, contrast,
+  saturation and Auto-Enhance; fill or keep-ratio fitting; RGB or CMYK JPEGs.
+- **Downloads / Print**: front or back JPEG, Download All (JPEGs + PDF per
+  card, for every selected card), or print straight to a CR80 card printer.
+
+The server is stateless: the browser re-sends the file for each crop and
+nothing is written to disk.
+
+API: `GET /api/types`, `POST /api/open` (page previews + suggested boxes),
+`POST /api/crop` (card PNGs for given boxes), `POST /api/export` (JPEG, PDF or
+zip from adjusted PNGs).
+
+## Command line
 
 ```bash
 pip install -e .[dev]
