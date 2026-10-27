@@ -72,7 +72,8 @@ RECIPES: list[Recipe] = [
            front=(32.5, 593.0, 277.5, 747.0), back=(327.0, 593.0, 572.0, 747.0)),
     Recipe("abha", "ABHA Card", "ABDM health account card, front over back",
            match=lambda i: "@abdm" in i.text and _near(i.sizes[0], 465, 576, 6),
-           front=(9.9, 292.9, 455.1, 566.1), back=(9.9, 9.9, 455.1, 283.1)),
+           # Inside the thin grey frame drawn around each card image.
+           front=(11.0, 294.0, 454.0, 565.0), back=(11.0, 11.0, 454.0, 283.0)),
     # WB driving licence: image-only A4 with front/back as two card images.
     Recipe("dl_wb", "Driving Licence (WB)", "Parivahan DL PDF, card pair at top",
            match=lambda i: _near(i.sizes[0], 2480, 3508, 10)
