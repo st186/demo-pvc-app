@@ -63,20 +63,6 @@ async function api(path, body) {
   throw Object.assign(new Error(err.message), { code: err.error, status: res.status });
 }
 
-function loadImageData(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const c = el("canvas", { width: img.width, height: img.height });
-      const x = c.getContext("2d");
-      x.drawImage(img, 0, 0);
-      resolve(x.getImageData(0, 0, img.width, img.height));
-    };
-    img.onerror = reject;
-    img.src = src;
-  });
-}
-
 // ---------- presets ----------
 
 fetch("/api/types").then((r) => r.json()).then((types) => {
@@ -135,8 +121,12 @@ function addFiles(fileList) {
   if (!files.length) return toast("Please choose PDF, JPG or PNG files", "err");
   for (const file of files) {
     if (file.size > 15 * 1024 * 1024) { toast(`${file.name} is larger than 15 MB`, "err"); continue; }
+    if (!file.size) { toast(`${file.name} is empty`, "err"); continue; }
+    // Unique names so cards don't overwrite each other in Download All.
+    let stem = stemOf(file.name);
+    for (let n = 2; state.items.some((i) => i.stem === stem); n++) stem = `${stemOf(file.name)}_${n}`;
     const item = {
-      id: nextId++, file, name: file.name, stem: stemOf(file.name), size: file.size,
+      id: nextId++, file, name: file.name, stem, size: file.size, openSeq: 0, version: 0,
       docType: state.preset, password: "", status: "busy", checked: true,
       pages: null, front: null, back: null, suggested: null,
       result: { front: null, back: null }, adj: { brightness: 0, contrast: 0, saturation: 0 },
@@ -150,14 +140,19 @@ function addFiles(fileList) {
 }
 
 async function openItem(item, { keepAdj = false } = {}) {
+  if (!state.items.includes(item)) return "removed";
+  const seq = ++item.openSeq;
+  item.version++;
   item.status = "busy";
   renderQueue();
   const body = new FormData();
   body.append("file", item.file);
   body.append("password", item.password);
   body.append("doc_type", item.docType);
+  const stale = () => seq !== item.openSeq || !state.items.includes(item);
   try {
     const data = await (await api("/api/open", body)).json();
+    if (stale()) return "stale";
     Object.assign(item, {
       pages: data.pages, type: data.type, label: data.label,
       front: cloneSide(data.front), back: cloneSide(data.back),
@@ -166,6 +161,7 @@ async function openItem(item, { keepAdj = false } = {}) {
     });
     if (!keepAdj) item.adj = { brightness: 0, contrast: 0, saturation: 0 };
   } catch (e) {
+    if (stale()) return "stale";
     if (e.code === "password_required" || e.code === "wrong_password") {
       item.status = "locked";
       item.error = e.code;
@@ -429,6 +425,7 @@ $("zoom-out").addEventListener("click", () => { state.zoom = clamp(state.zoom - 
 $("zoom-fit").addEventListener("click", () => { state.zoom = 1; layoutStage(); });
 
 function markDirty(item) {
+  item.version++;
   if (item.status === "cropped") item.dirty = true;
   renderBar();
   renderPreview();
@@ -509,13 +506,20 @@ function cropTargets() {
 // Cards that still need cropping: new, edited, or the one on screen.
 const pendingCrops = () => cropTargets().filter((i) => i.status !== "cropped" || i.dirty || i === state.active);
 
+// While a batch runs, `cropProgress` holds the button label and renderBar
+// leaves the button alone.
+let cropping = false, cropAgain = false, cropProgress = "";
 async function cropSelected() {
+  if (cropping) { cropAgain = true; return; }
   const targets = pendingCrops();
   if (!targets.length) return;
-  const btn = $("crop-btn");
-  btn.disabled = true;
-  btn.querySelector("span").textContent = targets.length > 1 ? `Cropping 0/${targets.length}…` : "Cropping…";
+  cropping = true;
   let done = 0;
+  const progress = () => {
+    cropProgress = targets.length > 1 ? `Cropping ${done}/${targets.length}…` : "Cropping…";
+    renderBar();
+  };
+  progress();
   for (const item of targets) {
     try {
       await cropItem(item);
@@ -523,14 +527,18 @@ async function cropSelected() {
       toast(`${item.name}: ${e.message}`, "err");
     }
     done++;
-    if (targets.length > 1) btn.querySelector("span").textContent = `Cropping ${done}/${targets.length}…`;
+    progress();
   }
-  btn.querySelector("span").textContent = "Crop Card";
+  cropping = false;
+  cropProgress = "";
   renderQueue();
   renderAll();
+  if (cropAgain) { cropAgain = false; cropSelected(); }
 }
 
 async function cropItem(item) {
+  if (!state.items.includes(item)) return;
+  const { openSeq, version } = item;
   const body = new FormData();
   body.append("file", item.file);
   body.append("password", item.password);
@@ -540,12 +548,40 @@ async function cropItem(item) {
   body.append("dpi", state.dpi);
   body.append("sharpen", state.sharpen);
   const data = await (await api("/api/crop", body)).json();
-  item.result = {
-    front: await loadImageData(data.front),
-    back: data.back ? await loadImageData(data.back) : null,
-  };
+  if (item.openSeq !== openSeq) return;  // reopened (e.g. preset changed) meanwhile
+  const [front, back] = await Promise.all([toBlob(data.front), data.back ? toBlob(data.back) : null]);
+  const size = await imageSize(front);
+  item.result = { front, back, ...size };
   item.status = "cropped";
-  item.dirty = false;
+  item.dirty = item.version !== version;   // boxes edited while this crop ran
+}
+
+// Results are kept as compressed JPEG blobs; pixels are decoded on demand
+// (only a few at a time) so a long queue doesn't exhaust browser memory.
+const toBlob = (dataUrl) => fetch(dataUrl).then((r) => r.blob());
+async function imageSize(blob) {
+  const bmp = await createImageBitmap(blob);
+  const size = { width: bmp.width, height: bmp.height };
+  bmp.close();
+  return size;
+}
+const pixelCache = new Map();
+async function getPixels(blob) {
+  if (pixelCache.has(blob)) {
+    const v = pixelCache.get(blob);
+    pixelCache.delete(blob);
+    pixelCache.set(blob, v);   // most recently used last
+    return v;
+  }
+  const bmp = await createImageBitmap(blob);
+  const c = el("canvas", { width: bmp.width, height: bmp.height });
+  const x = c.getContext("2d");
+  x.drawImage(bmp, 0, 0);
+  bmp.close();
+  const data = x.getImageData(0, 0, c.width, c.height);
+  pixelCache.set(blob, data);
+  while (pixelCache.size > 4) pixelCache.delete(pixelCache.keys().next().value);
+  return data;
 }
 
 // ---------- preview & adjustments ----------
@@ -594,13 +630,15 @@ function renderPreview() {
   }
   if (drawPending) return;
   drawPending = true;
-  requestAnimationFrame(() => {
+  requestAnimationFrame(async () => {
+    const item = state.active;
+    const blob = item?.result?.[state.previewSide];
+    if (!blob) { drawPending = false; return; }
+    const px = await getPixels(blob);
     drawPending = false;
-    const r = state.active?.result?.[state.previewSide];
-    if (!r) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (canvas.width !== r.width) Object.assign(canvas, { width: r.width, height: r.height });
-    ctx.putImageData(adjusted(r, state.active.adj), 0, 0);
+    if (state.active !== item || item.result[state.previewSide] !== blob) return renderPreview();
+    if (canvas.width !== px.width) Object.assign(canvas, { width: px.width, height: px.height });
+    ctx.putImageData(adjusted(px, item.adj), 0, 0);
   });
 }
 
@@ -633,15 +671,14 @@ $("reset-adj").addEventListener("click", () => {
 });
 
 // Stretch the 1st–99th percentile of luminance to the full range.
-$("auto-enhance").addEventListener("click", () => {
+$("auto-enhance").addEventListener("click", async () => {
   const item = state.active;
-  const base = item?.result?.front;
-  if (!base) return toast("Crop the card first");
+  if (!item?.result?.front) return toast("Crop the card first");
+  const base = await getPixels(item.result.front);
   const hist = new Uint32Array(256);
   const d = base.data;
   let n = 0;
   for (let i = 0; i < d.length; i += 4) {
-    if (d[i + 3] < 255) continue;
     hist[Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2])]++;
     n++;
   }
@@ -675,7 +712,7 @@ segmented($("color-mode"), "color", (v) => (state.color = v));
 
 // Quality and sharpening apply when cropping, so re-crop what is already done.
 function recropAll() {
-  for (const i of state.items) if (i.status === "cropped") i.dirty = true;
+  for (const i of state.items) if (i.status === "cropped") { i.dirty = true; i.version++; }
   renderBar();
   if (state.active?.status === "cropped") cropSelected();
 }
@@ -687,8 +724,8 @@ segmented($("sharpen-mode"), "sharpen", (v) => { state.sharpen = v === "on"; rec
 function renderBar() {
   const item = state.active;
   $("doc-name").textContent = item ? item.name : "No document loaded";
-  const px = item?.result?.front;
-  $("doc-size").textContent = px ? `${px.width}×${px.height} px` : state.dpi === 600 ? "2022×1275 px" : "1011×638 px";
+  const px = item?.result;
+  $("doc-size").textContent = px?.front ? `${px.width}×${px.height} px` : state.dpi === 600 ? "2022×1275 px" : "1011×638 px";
   const status = !item ? "Upload in Column 1"
     : item.status === "busy" ? "Opening…"
     : item.status === "locked" ? "Password required"
@@ -698,21 +735,44 @@ function renderBar() {
   $("doc-status").textContent = status;
   const targets = pendingCrops();
   const cropped = item?.status === "cropped";
-  $("crop-btn").disabled = !targets.length;
-  $("crop-btn").hidden = cropped && !item.dirty;
-  $("crop-btn").querySelector("span").textContent =
-    targets.length > 1 ? `Crop ${targets.length} Cards` : "Crop Card";
+  const btn = $("crop-btn");
+  if (cropping) {
+    btn.hidden = false;
+    btn.disabled = true;
+    btn.querySelector("span").textContent = cropProgress;
+  } else {
+    btn.disabled = !targets.length;
+    btn.hidden = cropped && !item.dirty;
+    btn.querySelector("span").textContent = targets.length > 1 ? `Crop ${targets.length} Cards` : "Crop Card";
+  }
   $("dl-row").hidden = !cropped;
   $("print-btn").hidden = !cropped || item.dirty;
   $("dl-back").disabled = !item?.result?.back;
 }
 
-function sideBlob(item, side) {
-  const base = item.result[side];
-  if (!base) return Promise.resolve(null);
-  const c = el("canvas", { width: base.width, height: base.height });
-  c.getContext("2d").putImageData(adjusted(base, item.adj), 0, 0);
-  return new Promise((resolve) => c.toBlob(resolve, "image/png"));
+const hasAdj = (adj) => adj.brightness || adj.contrast || adj.saturation;
+
+// Card side with the user's adjustments as a JPEG blob (rounded corners on
+// white when `rounded`, for printing; export rounds on the server).
+async function sideBlob(item, side, { rounded = false } = {}) {
+  const blob = item.result[side];
+  if (!blob) return null;
+  if (!hasAdj(item.adj) && !rounded) return blob;
+  const px = await getPixels(blob);
+  const src = el("canvas", { width: px.width, height: px.height });
+  src.getContext("2d").putImageData(adjusted(px, item.adj), 0, 0);
+  let out = src;
+  if (rounded) {
+    out = el("canvas", { width: px.width, height: px.height });
+    const x = out.getContext("2d");
+    x.fillStyle = "#fff";
+    x.fillRect(0, 0, out.width, out.height);
+    x.beginPath();
+    x.roundRect(0, 0, out.width, out.height, out.width * (3.18 / 85.6));
+    x.clip();
+    x.drawImage(src, 0, 0);
+  }
+  return new Promise((resolve) => out.toBlob(resolve, "image/jpeg", 0.95));
 }
 
 function saveBlob(blob, filename) {
@@ -728,19 +788,27 @@ const croppedTargets = () => {
   return list.length ? list : [state.active].filter((i) => i?.status === "cropped");
 };
 
+const EXPORT_BATCH = 40;  // cards per download request (server allows 100 images)
+
 async function exportCards(items, sides, format) {
-  const body = new FormData();
-  for (const item of items) {
-    for (const side of sides) {
-      const blob = await sideBlob(item, side);
-      if (blob) body.append("files", blob, `${item.stem}__${side}.png`);
+  const batches = [];
+  for (let i = 0; i < items.length; i += EXPORT_BATCH) batches.push(items.slice(i, i + EXPORT_BATCH));
+  for (const [n, batch] of batches.entries()) {
+    if (batches.length > 1) toast(`Preparing download ${n + 1} of ${batches.length}…`);
+    const body = new FormData();
+    for (const item of batch) {
+      for (const side of sides) {
+        const blob = await sideBlob(item, side);
+        if (blob) body.append("files", blob, `${item.stem}__${side}.jpg`);
+      }
     }
+    body.append("format", format);
+    body.append("cmyk", state.color === "cmyk");
+    const res = await api("/api/export", body);
+    let name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "")?.[1] || "card";
+    if (batches.length > 1) name = name.replace(/(\.\w+)$/, `_part${n + 1}$1`);
+    saveBlob(await res.blob(), name);
   }
-  body.append("format", format);
-  body.append("cmyk", state.color === "cmyk");
-  const res = await api("/api/export", body);
-  const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "")?.[1] || "card";
-  saveBlob(await res.blob(), name);
 }
 
 async function withBusy(btn, fn) {
@@ -757,7 +825,7 @@ $("print-btn").addEventListener("click", async () => {
   const urls = [];
   for (const item of items) {
     for (const side of SIDES) {
-      const blob = await sideBlob(item, side);
+      const blob = await sideBlob(item, side, { rounded: true });
       if (blob) urls.push(URL.createObjectURL(blob));
     }
   }

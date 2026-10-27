@@ -38,8 +38,8 @@ The tool only crops and resizes. It never edits the content of a document.
 
 ```bash
 pip install -e .[web,dev]
-uvicorn pvccard.web:app --port 8000
-# open http://localhost:8000
+python -m pvccard.serve            # open http://localhost:8000
+python -m pvccard.serve --host 0.0.0.0 --port 8000 --workers 4   # on a server
 ```
 
 - **Uploads & Queue**: drop many PDFs/images at once; password-protected PDFs
@@ -54,7 +54,22 @@ uvicorn pvccard.web:app --port 8000
   card, for every selected card), or print straight to a CR80 card printer.
 
 The server is stateless: the browser re-sends the file for each crop and
-nothing is written to disk.
+uploads are kept in memory, never written to disk.
+
+### Load and reliability
+
+- pdfium is not thread-safe (concurrent use crashed the process with heap
+  corruption in testing), so all pdfium calls run under one lock per process.
+  Use `--workers N` (about one per CPU core) to use more cores.
+- `pvccard.serve` sets `MALLOC_ARENA_MAX=2` on Linux before starting; without
+  it glibc kept ~2 GB resident under load instead of ~800 MB.
+- Measured on 4 cores: 100 documents opened and cropped at HD, 25 at a time,
+  in ~35 s with 1 worker and ~21 s with 4; 0 errors across 500+ documents,
+  including bursts of 50 concurrent requests. `scripts/load_test.py` repeats
+  this against your own samples.
+- The browser keeps cropped cards as compressed JPEGs and decodes pixels only
+  for the card on screen, so a long queue stays light (~50 MB for 12 HD cards).
+  Download All is split into batches of 40 cards.
 
 API: `GET /api/types`, `POST /api/open` (page previews + suggested boxes),
 `POST /api/crop` (card PNGs for given boxes), `POST /api/export` (JPEG, PDF or

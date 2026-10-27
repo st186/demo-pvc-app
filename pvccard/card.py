@@ -48,12 +48,19 @@ def fit_to_card(img: Image.Image, dpi: int, fit: str = "stretch",
 
 def round_corners(img: Image.Image, dpi: int, radius_mm: float = CORNER_RADIUS_MM) -> Image.Image:
     """Make the corners transparent, matching the physical card's rounding."""
-    ss = 4  # supersample the mask for smooth edges
-    r = round(radius_mm / 25.4 * dpi) * ss
-    mask = Image.new("L", (img.width * ss, img.height * ss), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, mask.width - 1, mask.height - 1), r, fill=255)
+    r = round(radius_mm / 25.4 * dpi)
+    ss = 4  # supersample the corner for smooth edges
+    big = Image.new("L", (r * ss * 2, r * ss * 2), 0)
+    ImageDraw.Draw(big).ellipse((0, 0, big.width - 1, big.height - 1), fill=255)
+    corner = big.resize((r * 2, r * 2), Image.LANCZOS).crop((0, 0, r, r))  # top-left quarter
+    mask = Image.new("L", img.size, 255)
+    w, h = img.size
+    mask.paste(corner, (0, 0))
+    mask.paste(corner.transpose(Image.FLIP_LEFT_RIGHT), (w - r, 0))
+    mask.paste(corner.transpose(Image.FLIP_TOP_BOTTOM), (0, h - r))
+    mask.paste(corner.transpose(Image.ROTATE_180), (w - r, h - r))
     out = img.convert("RGBA")
-    out.putalpha(mask.resize(img.size, Image.LANCZOS))
+    out.putalpha(mask)
     return out
 
 

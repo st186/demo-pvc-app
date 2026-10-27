@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pypdfium2 as pdfium
-from PIL import Image
+from PIL import Image, ImageOps
 
 from .card import DEFAULT_DPI, Card, card_px
 from .detect import find_cards
@@ -69,13 +69,24 @@ class Document:
             self.pdf = open_pdf(data, password)
             self.sizes = [p.get_size() for p in self.pdf]
         else:
-            self.image = Image.open(io.BytesIO(data)).convert("RGB")
+            # Phone photos store rotation in EXIF; apply it so cards are upright.
+            self.image = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
             self.sizes = [self.image.size]
 
     @classmethod
     def from_path(cls, path: str | Path, password: str | None = None) -> "Document":
         path = Path(path)
         return cls(path.read_bytes(), path.name, password)
+
+    def close(self) -> None:
+        if self.is_pdf:
+            self.pdf.close()
+
+    def __enter__(self) -> "Document":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
     @property
     def page_count(self) -> int:
