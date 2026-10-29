@@ -188,6 +188,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .checkbox input:checked + .box svg { opacity: 1; }
 .checkbox input:focus-visible + .box { outline: 2px solid var(--teal); outline-offset: 2px; }
 
+.batch-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .queue { flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 .queue:empty { display: none; }
 .q-item {

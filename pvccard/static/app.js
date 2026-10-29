@@ -220,6 +220,9 @@ function renderQueue() {
   const checked = state.items.filter((i) => i.checked).length;
   $("queue-count").textContent = `${n} file${n === 1 ? "" : "s"} in queue`;
   $("queue-tools").hidden = n === 0;
+  const batch = selectedCropped().length;
+  $("batch-tools").hidden = batch < 2;
+  $("dl-selected").querySelector("span").textContent = `Download Selected (${batch})`;
   $("add-more").hidden = n === 0;
   $("dropzone").hidden = n > 0;
   $("select-all").checked = n > 0 && checked === n;
@@ -783,10 +786,9 @@ function saveBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
-const croppedTargets = () => {
-  const list = state.items.filter((i) => i.checked && i.status === "cropped" && !i.dirty);
-  return list.length ? list : [state.active].filter((i) => i?.status === "cropped");
-};
+// Bottom-bar actions work on the card on screen; the queue's batch buttons
+// work on every ticked card that is cropped and up to date.
+const selectedCropped = () => state.items.filter((i) => i.checked && i.status === "cropped" && !i.dirty);
 
 const EXPORT_BATCH = 40;  // cards per download request (server allows 100 images)
 
@@ -816,12 +818,15 @@ async function withBusy(btn, fn) {
   try { await fn(); } catch (e) { toast(e.message || "Download failed", "err"); } finally { btn.disabled = false; renderBar(); }
 }
 
-$("dl-all").addEventListener("click", (e) => withBusy(e.currentTarget, () => exportCards(croppedTargets(), SIDES, "zip")));
+$("dl-all").addEventListener("click", (e) => withBusy(e.currentTarget, () => exportCards([state.active], SIDES, "zip")));
+$("dl-selected").addEventListener("click", (e) => withBusy(e.currentTarget, () => exportCards(selectedCropped(), SIDES, "zip")));
 $("dl-front").addEventListener("click", (e) => withBusy(e.currentTarget, () => exportCards([state.active], ["front"], "jpg")));
 $("dl-back").addEventListener("click", (e) => withBusy(e.currentTarget, () => exportCards([state.active], ["back"], "jpg")));
 
-$("print-btn").addEventListener("click", async () => {
-  const items = croppedTargets();
+$("print-btn").addEventListener("click", () => printCards([state.active]));
+$("print-selected").addEventListener("click", () => printCards(selectedCropped()));
+
+async function printCards(items) {
   const urls = [];
   for (const item of items) {
     for (const side of SIDES) {
@@ -842,7 +847,7 @@ $("print-btn").addEventListener("click", async () => {
   frame.contentWindow.focus();
   frame.contentWindow.print();
   setTimeout(() => urls.forEach(URL.revokeObjectURL), 60000);
-});
+}
 
 renderQueue();
 renderAll();

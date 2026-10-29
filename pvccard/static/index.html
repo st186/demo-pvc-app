@@ -88,6 +88,10 @@
         <label class="checkbox"><input type="checkbox" id="select-all"><span class="box"><svg><use href="#i-check"/></svg></span><span id="select-all-label">Select All</span></label>
         <button class="btn btn-danger btn-sm" id="clear-btn"><svg><use href="#i-trash"/></svg>Clear</button>
       </div>
+      <div class="batch-tools" id="batch-tools" hidden>
+        <button class="btn btn-dark btn-sm" id="dl-selected"><svg><use href="#i-download"/></svg><span>Download Selected</span></button>
+        <button class="btn btn-dark btn-sm" id="print-selected"><svg><use href="#i-printer"/></svg>Print Selected</button>
+      </div>
 
       <div class="queue" id="queue"></div>
 
@@ -223,7 +227,7 @@
     </div>
     <div class="actions">
       <div class="dl-row" id="dl-row" hidden>
-        <button class="btn btn-dark" id="dl-all"><svg><use href="#i-download"/></svg>Download All</button>
+        <button class="btn btn-dark" id="dl-all"><svg><use href="#i-download"/></svg>Download Card</button>
         <button class="btn btn-dark" id="dl-front"><svg><use href="#i-download"/></svg>Front</button>
         <button class="btn btn-dark" id="dl-back"><svg><use href="#i-download"/></svg>Back</button>
       </div>
