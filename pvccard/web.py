@@ -31,6 +31,7 @@ from starlette.formparsers import MultiPartParser
 from .card import DEFAULT_DPI, card_px, colour_background, fit_to_card, on_white, round_corners
 from .convert import Document, PasswordRequired, Side
 from .recipes import BY_NAME, RECIPES
+from . import passport
 
 MAX_UPLOAD = 15 * 1024 * 1024
 MAX_EXPORT_FILES = 100
@@ -258,3 +259,49 @@ def export(files: list[UploadFile] = File(...), format: str = Form("zip"),
                 z.writestr(f"{name}_card.pdf", pdf([img for _, _, img in card]))
     zip_name = names[0] if len(names) == 1 else "pvc_cards"
     return _attachment(buf.getvalue(), "application/zip", f"{zip_name}.zip")
+
+
+# ---------- passport photos ----------
+
+@app.get("/api/passport/sizes")
+def passport_sizes() -> dict:
+    return {"sizes": [vars(s) for s in passport.SIZES.values()],
+            "custom": {"head": passport.CUSTOM_HEAD, "top": passport.CUSTOM_TOP}}
+
+
+@app.post("/api/passport/cutout")
+def passport_cutout(file: UploadFile = File(...)):
+    """Person with transparent background, plus head position in its pixels."""
+    data = _read(file)
+    try:
+        with WORK_SLOTS:
+            cut = passport.cut_out(data)
+    except ImportError:
+        raise ApiError(501, "photo_extra_missing",
+                       "Background removal is not installed: pip install -e .[photo]")
+    except ValueError as e:
+        raise ApiError(422, "no_person", str(e))
+    except Exception:
+        raise ApiError(422, "unreadable", "This file could not be opened as a photo")
+    buf = io.BytesIO()
+    cut.image.save(buf, "PNG", compress_level=3)
+    return {"image": "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode(),
+            "original": _data_url(cut.original, 92),
+            "width": cut.image.width, "height": cut.image.height,
+            "heads": [vars(h) for h in cut.heads]}
+
+
+@app.post("/api/pdf")
+def pages_pdf(pages: list[UploadFile] = File(...), dpi: int = Form(300), name: str = Form("photos")):
+    """Combine page images (e.g. A4 photo sheets) into one PDF at `dpi`."""
+    if len(pages) > 20:
+        raise ApiError(413, "too_many", "At most 20 pages per PDF")
+    if dpi not in QUALITIES:
+        raise ApiError(400, "bad_dpi", "dpi must be 300 or 600")
+    try:
+        imgs = [Image.open(io.BytesIO(p.file.read(MAX_UPLOAD))).convert("RGB") for p in pages]
+    except Exception:
+        raise ApiError(400, "bad_image", "Pages must be JPEG or PNG")
+    buf = io.BytesIO()
+    imgs[0].save(buf, "PDF", resolution=dpi, save_all=True, append_images=imgs[1:])
+    return _attachment(buf.getvalue(), "application/pdf", f"{_safe(name)}.pdf")

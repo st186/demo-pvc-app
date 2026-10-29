@@ -7,11 +7,12 @@ dependencies = [
     "pypdfium2>=4.30",
     "pillow>=10.0",
     "numpy>=1.26",
-    "opencv-python-headless>=4.9",
+    "opencv-python-headless>=4.8",
 ]
 
 [project.optional-dependencies]
 web = ["fastapi>=0.110", "uvicorn>=0.29", "python-multipart>=0.0.9"]
+photo = ["rembg>=2.0.50", "onnxruntime>=1.17"]
 dev = ["pytest>=8", "httpx>=0.27"]
 
 [project.scripts]
@@ -26,4 +27,4 @@ build-backend = "setuptools.build_meta"
 packages = ["pvccard"]
 
 [tool.setuptools.package-data]
-pvccard = ["static/*"]
+pvccard = ["static/*", "models/*"]

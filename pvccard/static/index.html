@@ -39,6 +39,16 @@
       <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
       <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
       <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+      <symbol id="i-move" viewBox="0 0 24 24"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24"><path d="M14.5 4h-5L7.5 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.5l-2-3Z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+      <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-pipette" viewBox="0 0 24 24"><path d="m2 22 1-1h3l9-9M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3L15 6"/></symbol>
+      <symbol id="i-contrast" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20Z" fill="currentColor"/></symbol>
+      <symbol id="i-square" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></symbol>
+      <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
       <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></symbol>
     </defs>
   </svg>
@@ -52,7 +62,10 @@
       </div>
       <span class="chip">v0.2</span>
     </div>
-    <div class="tool-pill"><svg><use href="#i-scissors"/></svg> PVC Card Maker</div>
+    <nav class="tool-switch" id="tool-switch">
+      <button data-tool="card" class="on"><svg><use href="#i-scissors"/></svg>PVC Card Maker</button>
+      <button data-tool="passport"><svg><use href="#i-camera"/></svg>Passport Studio</button>
+    </nav>
     <div class="top-actions">
       <span class="privacy" title="Files are processed in memory and never stored">
         <svg><use href="#i-shield"/></svg><span>Private · nothing stored</span>
@@ -60,7 +73,7 @@
     </div>
   </header>
 
-  <main class="studio">
+  <main class="studio" id="card-view">
     <!-- Column 1: uploads & queue -->
     <section class="col" id="col-queue">
       <div class="col-head">
@@ -224,7 +237,7 @@
     </section>
   </main>
 
-  <footer class="actionbar">
+  <footer class="actionbar" id="card-bar">
     <div class="doc-info">
       <div class="icon-tile"><svg><use href="#i-file"/></svg></div>
       <div>
@@ -242,6 +255,200 @@
       <button class="btn btn-big" id="print-btn" hidden><svg><use href="#i-printer"/></svg>Print PVC Card</button>
     </div>
   </footer>
+
+
+  <!-- Passport photo tool -->
+  <main class="studio" id="passport-view" hidden>
+    <section class="col">
+      <div class="col-head">
+        <div class="icon-tile"><svg><use href="#i-camera"/></svg></div>
+        <div class="col-title">
+          <h2>Passport Photos</h2>
+          <div class="sub teal" id="pp-count">0 photos in queue</div>
+        </div>
+        <button class="btn btn-accent btn-sm" id="pp-add"><svg><use href="#i-plus"/></svg>Add</button>
+      </div>
+
+      <div class="preset">
+        <div class="label-accent"><svg><use href="#i-sparkles"/></svg>Passport Size Preset<span class="label-right" id="pp-size-text"></span></div>
+        <div class="dropdown">
+          <button class="dropdown-btn" id="pp-preset-btn" aria-haspopup="listbox">
+            <span class="icon-tile sm"><svg><use href="#i-camera"/></svg></span>
+            <span class="dd-text"><b id="pp-preset-label">India Passport / Visa</b><small id="pp-preset-desc"></small></span>
+            <svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <ul class="dropdown-list" id="pp-preset-list" role="listbox" hidden></ul>
+        </div>
+        <div class="custom-size" id="pp-custom" hidden>
+          <label>Width <input type="number" id="pp-custom-w" min="15" max="150" step="1" value="35"> mm</label>
+          <span>×</span>
+          <label>Height <input type="number" id="pp-custom-h" min="15" max="150" step="1" value="45"> mm</label>
+        </div>
+      </div>
+
+      <div class="queue-tools" id="pp-tools" hidden>
+        <label class="checkbox"><input type="checkbox" id="pp-select-all"><span class="box"><svg><use href="#i-check"/></svg></span><span id="pp-select-label">Select All</span></label>
+        <button class="btn btn-danger btn-sm" id="pp-clear"><svg><use href="#i-trash"/></svg>Clear</button>
+      </div>
+
+      <div class="queue" id="pp-list"></div>
+      <label class="dropzone" id="pp-drop">
+        <input type="file" id="pp-input" accept=".jpg,.jpeg,.png,.webp" multiple hidden>
+        <div class="icon-tile lg"><svg><use href="#i-image"/></svg></div>
+        <h3>Upload Photos</h3>
+        <p>Any photo of a person. AI removes the background automatically.</p>
+        <span class="btn btn-accent btn-sm">Browse Photos</span>
+        <small>JPG · PNG · WEBP</small>
+      </label>
+      <button class="add-more" id="pp-add-more" hidden><svg><use href="#i-plus"/></svg>Add More Photos</button>
+    </section>
+
+    <section class="col">
+      <div class="work-tools" id="pp-work-tools" hidden>
+        <span class="chip-tool" id="pp-chip-size"><svg><use href="#i-camera"/></svg><span></span></span>
+        <span class="chip-tool teal" id="pp-chip-status"><svg><use href="#i-check-circle"/></svg><span>Character Isolated</span></span>
+        <button class="btn btn-ghost btn-sm" id="pp-autocenter"><svg><use href="#i-wand"/></svg>AI Auto-Center</button>
+        <button class="btn btn-ghost btn-sm" id="pp-fit"><svg><use href="#i-fit"/></svg>Fit Frame</button>
+        <button class="btn btn-ghost btn-sm" id="pp-rotate"><svg><use href="#i-rotate"/></svg>Rotate</button>
+      </div>
+      <div class="stage-wrap" id="pp-stage-wrap">
+        <div class="stage pp-stage" id="pp-stage" hidden>
+          <img id="pp-original" alt="Original photo" draggable="false">
+          <div class="crop-box active" id="pp-box" data-label=""></div>
+        </div>
+        <div class="empty-state" id="pp-work-empty">
+          <div class="icon-tile lg"><svg><use href="#i-camera"/></svg></div>
+          <h3>Passport Photo Workspace</h3>
+          <p>Upload a photo in <b>Column 1</b>. The person is cut out and framed automatically; drag the frame to adjust.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="col" id="pp-editor">
+      <div class="col-head">
+        <div class="icon-tile"><svg><use href="#i-sparkles"/></svg></div>
+        <div class="col-title"><h2>Live Output Preview</h2>
+          <button class="hold" id="pp-compare"><svg><use href="#i-eye"/></svg>Hold to Compare</button></div>
+      </div>
+      <div class="pp-preview" id="pp-preview">
+        <canvas id="pp-canvas" hidden></canvas>
+        <div class="empty-state small" id="pp-preview-empty">
+          <div class="icon-tile accent"><svg><use href="#i-camera"/></svg></div>
+          <h4>No Photo Selected</h4>
+          <p>Upload a photo in Column 1.</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><svg class="gold"><use href="#i-wand"/></svg><h3>AI Background Replacement</h3>
+          <label class="switch"><input type="checkbox" id="pp-bg-on" checked><span></span></label></div>
+        <div class="swatches grid7" id="pp-bg">
+          <label class="swatch-custom" title="Custom colour"><svg><use href="#i-pipette"/></svg><input type="color" id="pp-bg-custom" value="#1e88d6"></label>
+          <button data-bg="#ffffff" class="on" title="White" style="--c:#ffffff"></button>
+          <button data-bg="#a9d6f0" title="Sky blue" style="--c:#a9d6f0"></button>
+          <button data-bg="#a8e0b8" title="Mint" style="--c:#a8e0b8"></button>
+          <button data-bg="#e9e17a" title="Yellow" style="--c:#e9e17a"></button>
+          <button data-bg="#efc79c" title="Peach" style="--c:#efc79c"></button>
+          <button data-bg="#f0b9c8" title="Pink" style="--c:#f0b9c8"></button>
+          <button data-bg="#5f6b7a" title="Slate" style="--c:#5f6b7a"></button>
+          <button data-bg="#1f2a3a" title="Navy black" style="--c:#1f2a3a"></button>
+          <button data-bg="#1e3f9a" title="Royal blue" style="--c:#1e3f9a"></button>
+          <button data-bg="#1e88d6" title="Passport blue" style="--c:#1e88d6"></button>
+          <button data-bg="#1a7a3c" title="Green" style="--c:#1a7a3c"></button>
+          <button data-bg="#e05a14" title="Orange" style="--c:#e05a14"></button>
+          <button data-bg="#cf2a2a" title="Red" style="--c:#cf2a2a"></button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><svg class="gold"><use href="#i-sparkles"/></svg><h3>AI Enhancement</h3>
+          <div class="seg xs" id="pp-strength">
+            <button data-strength="low" class="on">Low</button><button data-strength="med">Med</button><button data-strength="high">High</button>
+          </div>
+          <label class="switch"><input type="checkbox" id="pp-enhance-on" checked><span></span></label></div>
+        <div class="looks" id="pp-looks">
+          <button data-look="natural" class="on"><i style="--c:#3aa0ff"></i>Natural</button>
+          <button data-look="cool"><i style="--c:#5bc8ff"></i>Cool Blue</button>
+          <button data-look="rosy"><i style="--c:#ff6f91"></i>Rosy</button>
+          <button data-look="warm"><i style="--c:#ffb238"></i>Warm</button>
+          <button data-look="standard"><i style="--c:#c9b8ff"></i>Standard</button>
+        </div>
+        <div class="slider"><div class="slider-top"><span><svg><use href="#i-sun"/></svg>Face Exposure / Brightness</span><b id="pp-brightness-val">+0</b></div>
+          <input type="range" id="pp-brightness" min="-40" max="40" value="0" class="coral"></div>
+        <div class="slider"><div class="slider-top"><span><svg><use href="#i-contrast"/></svg>Subject Contrast &amp; Tone</span><b id="pp-contrast-val">+0</b></div>
+          <input type="range" id="pp-contrast" min="-40" max="40" value="0" class="blue"></div>
+        <div class="slider"><div class="slider-top"><span><svg><use href="#i-check-circle"/></svg>Cutout Edge Softness &amp; Cleanliness</span><b class="violet" id="pp-soft-val">40%</b></div>
+          <input type="range" id="pp-soft" min="0" max="100" value="40" class="violet"></div>
+        <div class="slider"><div class="slider-top"><span><svg><use href="#i-sparkles"/></svg>Backdrop Reflection Despill</span><b class="teal" id="pp-despill-val">60%</b></div>
+          <input type="range" id="pp-despill" min="0" max="100" value="60" class="teal"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><svg class="coral"><use href="#i-square"/></svg><h3>Photo Border</h3>
+          <label class="switch"><input type="checkbox" id="pp-border-on" checked><span></span></label></div>
+        <div class="seg full" id="pp-border-w">
+          <button data-bw="0.2">Thin</button><button data-bw="0.4" class="on">Medium</button><button data-bw="0.7">Thick</button><button data-bw="1.1">Heavy</button>
+        </div>
+        <div class="swatches" id="pp-border-c">
+          <label class="swatch-custom" title="Custom colour"><svg><use href="#i-pipette"/></svg><input type="color" id="pp-border-custom" value="#000000"></label>
+          <button data-bc="#000000" title="Black" style="--c:#000000"></button>
+          <button data-bc="#3c4655" class="on" title="Charcoal" style="--c:#3c4655"></button>
+          <button data-bc="#6b7889" title="Grey" style="--c:#6b7889"></button>
+          <button data-bc="#1e3f9a" title="Blue" style="--c:#1e3f9a"></button>
+          <button data-bc="#cf2a2a" title="Red" style="--c:#cf2a2a"></button>
+          <button data-bc="#ffffff" title="White" style="--c:#ffffff"></button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="actionbar" id="passport-bar" hidden>
+    <div class="doc-info">
+      <div class="icon-tile"><svg><use href="#i-camera"/></svg></div>
+      <div>
+        <b id="pp-name">No photo loaded</b>
+        <small><span class="gold" id="pp-size-label"></span> · <span id="pp-status">Upload in Column 1</span></small>
+      </div>
+    </div>
+    <div class="actions">
+      <div class="dl-row">
+        <button class="btn btn-dark" id="pp-dl-photo" disabled><svg><use href="#i-download"/></svg>Photo JPG</button>
+      </div>
+      <button class="btn btn-big" id="pp-print" disabled><svg><use href="#i-printer"/></svg>Print Photo Sheet</button>
+    </div>
+  </footer>
+
+  <!-- Print photo sheet -->
+  <div class="modal-backdrop" id="sheet-modal" hidden>
+    <div class="modal sheet-modal" role="dialog" aria-labelledby="sheet-title">
+      <div class="modal-head">
+        <div class="icon-tile accent"><svg><use href="#i-printer"/></svg></div>
+        <div><h3 id="sheet-title">Print Passport Photo Sheet</h3><p class="muted" id="sheet-sub"></p></div>
+        <button type="button" class="icon-btn" id="sheet-close" aria-label="Close"><svg><use href="#i-x"/></svg></button>
+      </div>
+      <div class="sheet-body">
+        <div class="sheet-side">
+          <div class="label-plain"><svg><use href="#i-file"/></svg>Paper Format:</div>
+          <div class="formats" id="sheet-formats"></div>
+          <div class="label-plain"><svg><use href="#i-layers"/></svg>Number of Copies:</div>
+          <div class="copies-list" id="sheet-copies"></div>
+          <div class="capacity">
+            <div class="cap-top"><b>Sheet Capacity:</b><b class="accent" id="sheet-cap-text"></b></div>
+            <div class="bar"><span id="sheet-cap-bar"></span></div>
+          </div>
+          <div class="sheet-actions">
+            <button class="btn btn-dark" id="sheet-cancel">Cancel</button>
+            <button class="btn btn-dark" id="sheet-pdf"><svg><use href="#i-download"/></svg>PDF</button>
+            <button class="btn btn-big" id="sheet-print"><svg><use href="#i-printer"/></svg><span>Print Sheet</span></button>
+          </div>
+        </div>
+        <div class="sheet-preview">
+          <div class="label-plain"><svg><use href="#i-layers"/></svg>Live Print Sheet Preview:</div>
+          <div class="sheet-pages" id="sheet-pages"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Password modal -->
   <div class="modal-backdrop" id="pw-modal" hidden>
@@ -272,5 +479,6 @@
   <iframe id="print-frame" title="print"></iframe>
 
   <script src="/static/app.js"></script>
+  <script src="/static/passport.js"></script>
 </body>
 </html>

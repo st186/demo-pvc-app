@@ -273,7 +273,9 @@ window.addEventListener("drop", (e) => {
   e.preventDefault();
   dragDepth = 0;
   document.body.classList.remove("dragging");
-  if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+  if (!e.dataTransfer?.files?.length) return;
+  if (window.onToolDrop?.(e.dataTransfer.files)) return;  // another tool is open
+  addFiles(e.dataTransfer.files);
 });
 
 // ---------- password modal ----------
