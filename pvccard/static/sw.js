@@ -2,7 +2,7 @@
 // open instantly. Static files are network-first (so updates show up at
 // once) with the cache as fallback; /api requests are never cached because
 // they carry people's documents.
-const CACHE = "pvc-studio-v1";
+const CACHE = "pvc-studio-v2";
 const SHELL = [
   "/", "/static/app.js", "/static/passport.js", "/static/styles.css",
   "/static/manifest.webmanifest", "/static/icons/icon-192.png", "/static/icons/icon-512.png",

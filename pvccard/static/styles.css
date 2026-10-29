@@ -470,6 +470,19 @@ input[type=range].violet { --thumb: var(--violet); }
 #pp-editor .slider-top span { font-size: 12.5px; }
 #pp-editor .slider-top span svg { color: var(--gold); }
 
+/* background-removal progress */
+.mini-bar { height: 4px; margin-top: 7px; border-radius: 99px; background: var(--raised); overflow: hidden; }
+.mini-bar span, .progress .bar span {
+  display: block; height: 100%; width: 0; border-radius: inherit; transition: width .35s ease;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+.progress { width: min(340px, 100%); margin-top: 10px; text-align: left; }
+.progress-top { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; color: var(--teal); }
+.progress-top .pct { color: var(--accent); font-variant-numeric: tabular-nums; }
+.progress .bar { height: 8px; margin-top: 8px; }
+.empty-state p:empty { display: none; }
+.q-status .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+
 /* print sheet modal */
 .sheet-modal { width: min(980px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; padding: 0; }
 .sheet-modal .modal-head { padding: 18px 20px; border-bottom: 1px solid var(--line); margin: 0; }

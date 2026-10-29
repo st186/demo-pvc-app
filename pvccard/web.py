@@ -298,6 +298,16 @@ def passport_sizes() -> dict:
             "custom": {"head": passport.CUSTOM_HEAD, "top": passport.CUSTOM_TOP}}
 
 
+@app.get("/api/passport/status")
+def passport_status(quality: str = "fast") -> dict:
+    """Polled by the browser while a photo is processed, for the progress bar."""
+    if quality not in passport.MODELS:
+        raise ApiError(400, "bad_quality", "quality must be fast or best")
+    if not passport.available():
+        return {"state": "failed", "progress": 0, "seconds": 0}
+    return passport.status(quality)
+
+
 @app.get("/api/passport/info")
 def passport_info() -> dict:
     ok = passport.available()

@@ -31,6 +31,14 @@ def test_info_reports_quality():
     assert info["default_quality"] == ("best" if info["gpu"] else "fast")
 
 
+def test_status_for_progress_bar():
+    for q in passport.MODELS:
+        st = client.get(f"/api/passport/status?quality={q}").json()
+        assert st["state"] in ("idle", "downloading", "loading", "ready", "failed")
+        assert 0 <= st["progress"] <= 1 and st["seconds"] >= 0
+    assert client.get("/api/passport/status?quality=ultra").status_code == 400
+
+
 def test_cutout_rejects_bad_input():
     r = client.post("/api/passport/cutout", files={"file": ("x.jpg", b"not an image", "image/jpeg")},
                     data={"quality": "ultra"})

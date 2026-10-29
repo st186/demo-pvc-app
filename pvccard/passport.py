@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import io
 import threading
+import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -73,8 +75,41 @@ def default_quality() -> str:
     return "best" if available() and gpu_provider() else "fast"
 
 
+# Exact download sizes, for the first-run download progress bar.
+MODEL_BYTES = {"fast": 175_997_641, "best": 224_005_088}
+
 _sessions: dict[str, object] = {}
 _session_lock = threading.Lock()
+# Per quality: idle | downloading | loading | ready | failed
+_state = {q: "idle" for q in MODELS}
+# Recent cut-out durations (seconds), to estimate progress for the next one.
+_durations = {q: deque(maxlen=10) for q in MODELS}
+
+
+def _session_class(quality: str):
+    from rembg.sessions import sessions_class
+    return {c.name(): c for c in sessions_class}[MODELS[quality]]
+
+
+def _model_dir(quality: str) -> Path:
+    return Path(_session_class(quality).model_dir())
+
+
+def status(quality: str) -> dict:
+    """Model state, download progress (0-1) and expected seconds per photo."""
+    state = _state[quality]
+    progress = 1.0 if state in ("loading", "ready") else 0.0
+    if state == "downloading":
+        d = _model_dir(quality)
+        # pooch writes a temporary file next to the final one; count both.
+        got = sum(f.stat().st_size for f in d.iterdir() if f.is_file()) if d.exists() else 0
+        progress = min(0.99, got / MODEL_BYTES[quality])
+    recent = _durations[quality]
+    if recent:
+        seconds = sum(recent) / len(recent)
+    else:
+        seconds = {"fast": 2.0, "best": 25.0}[quality] if not gpu_provider() else 1.5
+    return {"state": state, "progress": round(progress, 3), "seconds": round(seconds, 1)}
 # BiRefNet needs several GB per run; never run two at once.
 _best_lock = threading.Lock()
 
@@ -94,7 +129,15 @@ def _rembg_session(quality: str):
                 opts.enable_mem_pattern = False  # required by DirectML
             providers = [gpu, "CPUExecutionProvider"] if gpu else ["CPUExecutionProvider"]
             cls = {c.name(): c for c in sessions_class}[MODELS[quality]]
-            _sessions[quality] = cls(MODELS[quality], opts, providers=providers)
+            downloaded = (Path(cls.model_dir()) / f"{cls.name()}.onnx").exists()
+            _state[quality] = "loading" if downloaded else "downloading"
+            try:
+                session = cls(MODELS[quality], opts, providers=providers)
+            except Exception:
+                _state[quality] = "failed"
+                raise
+            _sessions[quality] = session
+            _state[quality] = "ready"
         return _sessions[quality]
 
 
@@ -161,6 +204,7 @@ def cut_out(data: bytes, quality: str = "fast") -> Cutout:
     img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
     img.thumbnail((MAX_INPUT_PX, MAX_INPUT_PX), Image.LANCZOS)
     session = _rembg_session(quality)
+    started = time.monotonic()
     if quality == "best" and not gpu_provider():
         with _best_lock:
             rgba = remove(img, session=session, post_process_mask=True)
@@ -184,4 +228,5 @@ def cut_out(data: bytes, quality: str = "fast") -> Cutout:
         center = float(xs[ys < top + (ys.max() - top) * 0.3].mean())
         width = 0.5 * float(right - left)
         heads.append(Head(float(top), float(top) + 1.1 * width, center, width))
+    _durations[quality].append(time.monotonic() - started)
     return Cutout(img, rgba, heads)

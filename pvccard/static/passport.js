@@ -145,29 +145,111 @@ const loadImg = (src) => new Promise((resolve, reject) => {
   img.src = src;
 });
 
+// POST with upload progress (fetch cannot report it). Resolves to parsed JSON;
+// rejects with the server's error message like api() does.
+function postWithProgress(url, body, onUpload) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.responseType = "json";
+    xhr.upload.onprogress = (e) => e.lengthComputable && onUpload(e.loaded / e.total);
+    xhr.upload.onload = () => onUpload(1);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(xhr.response);
+      const err = xhr.response || {};
+      reject(Object.assign(new Error(err.message || `Server error (${xhr.status})`), { code: err.error }));
+    };
+    xhr.onerror = () => reject(new Error("Network error, please try again"));
+    xhr.send(body);
+  });
+}
+
+// Progress: upload 0–15 %, then the server's model state. A first-run model
+// download reports real bytes; the cut-out itself is estimated from how long
+// recent photos took on this server.
+function setProgress(item, p, stage) {
+  item.progress = clamp(p, 0, 1);
+  item.stage = stage;
+  renderProgress();
+}
+
 async function cutOut(item) {
   if (!pp.items.includes(item)) return;
   const seq = ++item.seq;
   item.status = "busy";
+  setProgress(item, 0, "Uploading photo…");
   renderAllPP();
   const body = new FormData();
   body.append("file", item.file);
   body.append("quality", pp.quality);
+  let uploaded = false, workStart = 0, timer = 0;
+  const poll = async () => {
+    if (!uploaded || seq !== item.seq || item.status !== "busy") return;
+    try {
+      const st = await (await fetch(`/api/passport/status?quality=${pp.quality}`)).json();
+      if (seq !== item.seq || item.status !== "busy") return;
+      if (st.state === "downloading") {
+        setProgress(item, st.progress, "Downloading AI model (first time only)…");
+        workStart = 0;
+      } else if (st.state === "loading" || st.state === "idle") {
+        setProgress(item, 0.15, "Loading AI model…");
+        workStart = 0;
+      } else {
+        workStart ||= performance.now();
+        const t = (performance.now() - workStart) / 1000;
+        const p = 0.15 + 0.8 * (1 - Math.exp((-1.6 * t) / Math.max(0.5, st.seconds)));
+        setProgress(item, p, t < st.seconds * 0.85 ? "Removing background…" : "Finding face & refining edges…");
+      }
+    } catch { /* keep the last progress */ }
+    timer = setTimeout(poll, 400);
+  };
   try {
-    const data = await (await api("/api/passport/cutout", body)).json();
+    const data = await postWithProgress("/api/passport/cutout", body, (f) => {
+      if (seq !== item.seq) return;
+      if (f >= 1 && !uploaded) { uploaded = true; poll(); }
+      else if (!uploaded) setProgress(item, 0.15 * f, `Uploading photo… ${Math.round(f * 100)}%`);
+    });
+    clearTimeout(timer);
+    if (seq !== item.seq) return;
+    setProgress(item, 0.97, "Preparing preview…");
     const [img, orig] = await Promise.all([loadImg(data.image), loadImg(data.original)]);
     if (seq !== item.seq) return;
+    setProgress(item, 1, "Done");
     item.cut = { img, orig, width: data.width, height: data.height, heads: data.heads };
     item.person = null;
     item.box = autoBox(item);
     item.status = "ready";
   } catch (e) {
+    clearTimeout(timer);
     if (seq !== item.seq) return;
     item.status = "error";
     item.error = e.message;
     toast(`${item.name}: ${e.message}`, "err");
   }
   renderAllPP();
+}
+
+// Update only the progress bars and labels (cheap; called every poll).
+function renderProgress() {
+  for (const item of pp.items) {
+    const row = $("pp-list").querySelector(`[data-id="${item.id}"]`);
+    if (!row) continue;
+    const bar = row.querySelector(".mini-bar span");
+    if (bar) bar.style.width = `${Math.round((item.progress || 0) * 100)}%`;
+    const label = row.querySelector(".q-status.busy .label");
+    if (label) label.textContent = item.stage || "Waiting in queue…";
+  }
+  const item = pp.active;
+  const busy = item?.status === "busy";
+  for (const id of ["pp-work-progress", "pp-preview-progress"]) {
+    const box = $(id);
+    box.hidden = !busy;
+    if (!busy) continue;
+    const pct = Math.round((item.progress || 0) * 100);
+    box.querySelector(".bar span").style.width = `${pct}%`;
+    box.querySelector(".pct").textContent = `${pct}%`;
+    box.querySelector(".pg-stage").textContent = item.stage || "Waiting in queue…";
+  }
 }
 
 function removeItem(item) {
@@ -198,7 +280,7 @@ segmented($("pp-quality"), "quality", (v) => {
   if (v === "best" && !pp.info?.gpu) toast("Best edges on CPU: about 10–30 seconds per photo");
   const ticked = pp.items.filter((i) => i.checked && i.status !== "busy");
   for (const item of ticked.length ? ticked : [pp.active].filter(Boolean)) {
-    item.status = "busy";
+    Object.assign(item, { status: "busy", progress: 0, stage: "Waiting in queue…" });
     ppChain = ppChain.then(() => cutOut(item));
   }
   renderAllPP();
@@ -208,10 +290,10 @@ function renderList() {
   const list = $("pp-list");
   list.replaceChildren();
   for (const item of pp.items) {
-    const [ic, text, cls] = item.status === "busy" ? ["clock", pp.quality === "best" ? "AI Cutout (best)…" : "AI Cutout…", "busy"]
+    const [ic, text, cls] = item.status === "busy" ? ["clock", item.stage || "Waiting in queue…", "busy"]
       : item.status === "error" ? ["alert", "Error", "error"] : ["sparkles", "AI Cutout", "cropped"];
     list.append(el("div", {
-      class: `q-item${item === pp.active ? " active" : ""}`, title: item.error || item.name,
+      class: `q-item${item === pp.active ? " active" : ""}`, title: item.error || item.name, "data-id": item.id,
       onclick: () => { pp.active = item; renderAllPP(); },
     },
       el("label", { class: "checkbox", onclick: (e) => e.stopPropagation() },
@@ -222,7 +304,10 @@ function renderList() {
       el("div", { class: "q-body" },
         el("div", { class: "q-name" }, item.name),
         el("div", { class: "q-meta" }, el("span", { class: "pill" }, fmtSize(item.file.size)), " · ",
-          el("span", { class: `q-status ${cls}` }, icon(ic), text))),
+          el("span", { class: `q-status ${cls}` }, icon(ic), el("span", { class: "label" }, text))),
+        ...(item.status === "busy"
+          ? [el("div", { class: "mini-bar" }, el("span", { style: `width:${Math.round((item.progress || 0) * 100)}%` }))]
+          : [])),
       el("button", { class: "q-del", "aria-label": `Remove ${item.name}`,
         onclick: (e) => { e.stopPropagation(); removeItem(item); } }, icon("trash")),
     ));
@@ -325,8 +410,8 @@ function renderWorkspacePP() {
   chip.querySelector("span").textContent = ready ? `${item.cut.heads.length > 1 ? `${item.cut.heads.length} People` : "Character"} Isolated` : "AI Cutout…";
   if (!ready) {
     const empty = $("pp-work-empty");
-    empty.querySelector("h3").textContent = item?.status === "busy" ? "Removing background…" : item?.status === "error" ? "Could not process" : "Passport Photo Workspace";
-    empty.querySelector("p").innerHTML = item?.status === "busy" ? "AI is isolating the person. This takes a few seconds."
+    empty.querySelector("h3").textContent = item?.status === "busy" ? "AI Cutout in progress…" : item?.status === "error" ? "Could not process" : "Passport Photo Workspace";
+    empty.querySelector("p").innerHTML = item?.status === "busy" ? ""
       : item?.status === "error" ? item.error : "Upload a photo in <b>Column 1</b>. The person is cut out and framed automatically; drag the frame to adjust.";
     return;
   }
@@ -472,7 +557,7 @@ function renderPreviewPP() {
     $("pp-preview-empty").querySelector("h4").textContent =
       item?.status === "busy" ? "AI Cutout in progress…" : item?.status === "error" ? "Could not process" : "No Photo Selected";
     $("pp-preview-empty").querySelector("p").textContent =
-      item?.status === "error" ? item.error : item ? "This takes a few seconds." : "Upload a photo in Column 1.";
+      item?.status === "error" ? item.error : item?.status === "busy" ? "" : "Upload a photo in Column 1.";
     return;
   }
   const c = renderPhoto(item, 1, pp.comparing);
@@ -551,6 +636,7 @@ function renderAllPP() {
   renderControlsPP();
   renderPreviewPP();
   renderBarPP();
+  renderProgress();
 }
 
 // ---------- downloads ----------
