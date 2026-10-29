@@ -6,6 +6,7 @@ out/
 *.jpeg
 *.png
 !tests/fixtures/*.png
+!pvccard/static/icons/*.png
 
 __pycache__/
 *.egg-info/

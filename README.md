@@ -37,7 +37,7 @@ The tool only crops and resizes. It never edits the content of a document.
 ## Web app (PVC Card Studio)
 
 ```bash
-pip install -e .[web,dev]
+pip install -e ".[web,photo,dev]"   # or .[web,photo-gpu,dev] with a GPU
 python -m pvccard.serve            # open http://localhost:8000
 python -m pvccard.serve --host 0.0.0.0 --port 8000 --workers 4   # on a server
 ```
@@ -74,6 +74,47 @@ uploads are kept in memory, never written to disk.
 API: `GET /api/types`, `POST /api/open` (page previews + suggested boxes),
 `POST /api/crop` (card PNGs for given boxes), `POST /api/export` (JPEG, PDF or
 zip from adjusted PNGs).
+
+## Passport Studio
+
+The second tool in the app (top switch: PVC Card Maker | Passport Studio).
+
+- Upload any photo of a person. AI removes the background and finds every
+  face, then frames the photo for the chosen preset: India Passport / Visa
+  3.5×4.5 cm, Stamp 2.5×3.0 cm, Joint Photo (2 people) 4.5×3.5 cm, Group /
+  SHG 5.0×3.5 cm, US / OCI 2×2 in, or a custom size in mm.
+- Workspace: drag or resize the frame (locked to the photo shape), AI
+  Auto-Center, Fit Frame, Rotate.
+- Live output with Hold to Compare; background colours (or keep the
+  original); enhancement looks (Natural, Cool Blue, Rosy, Warm, Standard) at
+  Low/Med/High; brightness, contrast, cutout edge softness, backdrop despill;
+  photo border width and colour.
+- Print Photo Sheet: copies per photo (steps of 6), A4 or 4×6 in paper
+  (orientation picked for capacity), capacity bar, live preview, PDF or
+  print. Photos are always printed at their exact size, e.g. 30 passport
+  photos per A4, 8 per 4×6.
+
+Background removal models (downloaded once, on first use):
+
+| Quality | Model | CPU | GPU |
+|---|---|---|---|
+| Fast | rembg `u2net_human_seg` | ~1 s, ~1 GB RAM | — |
+| Best edges | BiRefNet general-lite (MIT) | 10–30 s, ~7 GB RAM | ~1 s |
+
+Best is chosen automatically when a GPU is available. Install the GPU
+runtime with `pip install -e ".[photo-gpu]"` (DirectML on Windows works with
+any GPU; CUDA on Linux), otherwise `pip install -e ".[photo]"`. RMBG-2.0 is
+not used because its licence is non-commercial; check MODNet's licence before
+using it commercially too. Faces are found with OpenCV's YuNet model (MIT,
+bundled in `pvccard/models`).
+
+## Install as a Chrome app
+
+PVC Studio is an installable web app (PWA). Start the server, open it in
+Chrome and click **Install App** in the top bar (or the install icon in the
+address bar). It then opens in its own window from the desktop / Start menu.
+Chrome allows installing from `http://localhost` or any `https://` address;
+for other machines on a network, serve it over HTTPS.
 
 ## Command line
 

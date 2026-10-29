@@ -13,6 +13,13 @@ dependencies = [
 [project.optional-dependencies]
 web = ["fastapi>=0.110", "uvicorn>=0.29", "python-multipart>=0.0.9"]
 photo = ["rembg>=2.0.50", "onnxruntime>=1.17"]
+# GPU background removal: DirectML on Windows (any GPU), CUDA on Linux (NVIDIA).
+photo-gpu = [
+    "rembg>=2.0.50",
+    "onnxruntime-directml>=1.17; sys_platform == 'win32'",
+    "onnxruntime-gpu>=1.17; sys_platform == 'linux'",
+    "onnxruntime>=1.17; sys_platform == 'darwin'",
+]
 dev = ["pytest>=8", "httpx>=0.27"]
 
 [project.scripts]

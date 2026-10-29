@@ -35,6 +35,7 @@ const pp = {
   enhanceOn: true, strength: "low", look: "natural",
   borderOn: true, borderMm: 0.4, borderColor: "#3c4655",
   comparing: false,
+  quality: "fast",     // background-removal model: fast | best
   format: "a4",
 };
 let ppNextId = 1;
@@ -151,6 +152,7 @@ async function cutOut(item) {
   renderAllPP();
   const body = new FormData();
   body.append("file", item.file);
+  body.append("quality", pp.quality);
   try {
     const data = await (await api("/api/passport/cutout", body)).json();
     const [img, orig] = await Promise.all([loadImg(data.image), loadImg(data.original)]);
@@ -175,11 +177,38 @@ function removeItem(item) {
   renderAllPP();
 }
 
+// Best quality is the default when the server has a GPU.
+fetch("/api/passport/info").then((r) => r.json()).then((info) => {
+  pp.info = info;
+  if (!info.available) {
+    $("pp-drop").querySelector("p").textContent =
+      "Background removal is not installed on the server: pip install -e .[photo]";
+  }
+  const best = $("pp-quality").querySelector("[data-quality=best]");
+  best.textContent = info.gpu ? "Best edges · GPU" : "Best edges (slow)";
+  best.title = info.gpu ? "BiRefNet on your GPU, about a second per photo"
+    : "BiRefNet on the CPU: cleaner hair and edges, 10–30 s per photo";
+  pp.quality = info.default_quality;
+  for (const b of $("pp-quality").children) b.classList.toggle("on", b.dataset.quality === pp.quality);
+});
+
+// A new cutout quality re-runs the ticked photos (the open one if none ticked).
+segmented($("pp-quality"), "quality", (v) => {
+  pp.quality = v;
+  if (v === "best" && !pp.info?.gpu) toast("Best edges on CPU: about 10–30 seconds per photo");
+  const ticked = pp.items.filter((i) => i.checked && i.status !== "busy");
+  for (const item of ticked.length ? ticked : [pp.active].filter(Boolean)) {
+    item.status = "busy";
+    ppChain = ppChain.then(() => cutOut(item));
+  }
+  renderAllPP();
+});
+
 function renderList() {
   const list = $("pp-list");
   list.replaceChildren();
   for (const item of pp.items) {
-    const [ic, text, cls] = item.status === "busy" ? ["clock", "AI Cutout…", "busy"]
+    const [ic, text, cls] = item.status === "busy" ? ["clock", pp.quality === "best" ? "AI Cutout (best)…" : "AI Cutout…", "busy"]
       : item.status === "error" ? ["alert", "Error", "error"] : ["sparkles", "AI Cutout", "cropped"];
     list.append(el("div", {
       class: `q-item${item === pp.active ? " active" : ""}`, title: item.error || item.name,

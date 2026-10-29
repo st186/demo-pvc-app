@@ -1,8 +1,13 @@
 """Passport photos: cut the person out and locate each head. The browser does
 the framing, background, enhancement and sheet layout from this.
 
-Background removal uses rembg's person-segmentation model (downloaded once,
-~176 MB, on first use). Install with: pip install -e .[photo]
+Background removal uses rembg models, downloaded once on first use:
+  fast: u2net_human_seg (~176 MB), about 1 s per photo on a CPU
+  best: BiRefNet general-lite (~224 MB, MIT), cleaner hair and edges but
+        10-30 s and ~7 GB RAM per photo on a CPU (fast on a GPU)
+With a GPU (NVIDIA via CUDA, or any GPU on Windows via DirectML) "best"
+takes about a second, so it becomes the default.
+Install with: pip install -e .[photo]   (GPU: pip install -e .[photo-gpu])
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ import numpy as np
 from PIL import Image, ImageOps
 
 MAX_INPUT_PX = 1600
-MODEL = "u2net_human_seg"
+MODELS = {"fast": "u2net_human_seg", "best": "birefnet-general-lite"}
 
 
 @dataclass(frozen=True)
@@ -46,17 +51,51 @@ SIZES = {s.id: s for s in (
 # Framing used for user-defined sizes.
 CUSTOM_HEAD, CUSTOM_TOP = 0.62, 0.10
 
-_session = None
+# Hardware providers tried before the CPU. DirectML runs on any Windows GPU.
+GPU_PROVIDERS = ("CUDAExecutionProvider", "DmlExecutionProvider", "ROCMExecutionProvider")
+
+
+def available() -> bool:
+    try:
+        import onnxruntime  # noqa: F401
+        import rembg  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def gpu_provider() -> str | None:
+    import onnxruntime as ort
+    return next((p for p in GPU_PROVIDERS if p in ort.get_available_providers()), None)
+
+
+def default_quality() -> str:
+    return "best" if available() and gpu_provider() else "fast"
+
+
+_sessions: dict[str, object] = {}
 _session_lock = threading.Lock()
+# BiRefNet needs several GB per run; never run two at once.
+_best_lock = threading.Lock()
 
 
-def _rembg_session():
-    global _session
+def _rembg_session(quality: str):
     with _session_lock:
-        if _session is None:
-            from rembg import new_session  # optional dependency, imported lazily
-            _session = new_session(MODEL)
-        return _session
+        if quality not in _sessions:
+            # Optional dependencies, imported lazily.
+            import onnxruntime as ort
+            from rembg.sessions import sessions_class
+            opts = ort.SessionOptions()
+            gpu = gpu_provider()
+            if quality == "best" and not gpu:
+                # Without the arena the CPU peak drops from ~12 GB to ~7 GB.
+                opts.enable_cpu_mem_arena = False
+            if gpu == "DmlExecutionProvider" or (quality == "best" and not gpu):
+                opts.enable_mem_pattern = False  # required by DirectML
+            providers = [gpu, "CPUExecutionProvider"] if gpu else ["CPUExecutionProvider"]
+            cls = {c.name(): c for c in sessions_class}[MODELS[quality]]
+            _sessions[quality] = cls(MODELS[quality], opts, providers=providers)
+        return _sessions[quality]
 
 
 @dataclass
@@ -109,13 +148,24 @@ def _faces(rgb: np.ndarray) -> list[tuple[float, float, float, float]]:
     return [f for f in out if f[3] >= 0.35 * out[0][3]] if out else []
 
 
-def cut_out(data: bytes) -> Cutout:
-    """Remove the background and locate the head."""
+def warm_up() -> None:
+    """Load (and on first run download) the default model ahead of the first photo."""
+    if available():
+        _rembg_session(default_quality())
+
+
+def cut_out(data: bytes, quality: str = "fast") -> Cutout:
+    """Remove the background and locate each head."""
     from rembg import remove
 
     img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
     img.thumbnail((MAX_INPUT_PX, MAX_INPUT_PX), Image.LANCZOS)
-    rgba = remove(img, session=_rembg_session(), post_process_mask=True)
+    session = _rembg_session(quality)
+    if quality == "best" and not gpu_provider():
+        with _best_lock:
+            rgba = remove(img, session=session, post_process_mask=True)
+    else:
+        rgba = remove(img, session=session, post_process_mask=True)
     alpha = np.asarray(rgba.getchannel("A"))
     if (alpha > 128).sum() < 0.02 * alpha.size:
         raise ValueError("No person found in this photo")

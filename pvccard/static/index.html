@@ -3,8 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PVC Card Studio</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='1' y='4' width='22' height='16' rx='3' fill='%23f7931a'/%3E%3Cpath d='M1 10h22' stroke='%231d0f00' stroke-width='2'/%3E%3C/svg%3E">
+  <title>PVC Studio</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0d1417">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <link rel="icon" href="/static/icons/icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -67,6 +70,7 @@
       <button data-tool="passport"><svg><use href="#i-camera"/></svg>Passport Studio</button>
     </nav>
     <div class="top-actions">
+      <button class="btn btn-accent btn-sm" id="install-btn" hidden><svg><use href="#i-download"/></svg>Install App</button>
       <span class="privacy" title="Files are processed in memory and never stored">
         <svg><use href="#i-shield"/></svg><span>Private · nothing stored</span>
       </span>
@@ -279,6 +283,13 @@
           </button>
           <ul class="dropdown-list" id="pp-preset-list" role="listbox" hidden></ul>
         </div>
+        <div class="opt-row">
+          <span>AI Cutout Quality</span>
+          <div class="seg sm" id="pp-quality">
+            <button data-quality="fast" class="on" title="About 1 second per photo">Fast</button>
+            <button data-quality="best" title="BiRefNet: cleaner hair and edges, 10–30 s per photo">Best edges</button>
+          </div>
+        </div>
         <div class="custom-size" id="pp-custom" hidden>
           <label>Width <input type="number" id="pp-custom-w" min="15" max="150" step="1" value="35"> mm</label>
           <span>×</span>
@@ -389,7 +400,7 @@
         <div class="seg full" id="pp-border-w">
           <button data-bw="0.2">Thin</button><button data-bw="0.4" class="on">Medium</button><button data-bw="0.7">Thick</button><button data-bw="1.1">Heavy</button>
         </div>
-        <div class="swatches" id="pp-border-c">
+        <div class="swatches grid7" id="pp-border-c">
           <label class="swatch-custom" title="Custom colour"><svg><use href="#i-pipette"/></svg><input type="color" id="pp-border-custom" value="#000000"></label>
           <button data-bc="#000000" title="Black" style="--c:#000000"></button>
           <button data-bc="#3c4655" class="on" title="Charcoal" style="--c:#3c4655"></button>
@@ -480,5 +491,24 @@
 
   <script src="/static/app.js"></script>
   <script src="/static/passport.js"></script>
+  <script>
+    // Installable Chrome app: register the service worker and offer an
+    // "Install App" button when Chrome says the app can be installed.
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+    let installPrompt = null;
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      installPrompt = e;
+      document.getElementById("install-btn").hidden = false;
+    });
+    document.getElementById("install-btn").addEventListener("click", async () => {
+      if (!installPrompt) return;
+      installPrompt.prompt();
+      await installPrompt.userChoice;
+      installPrompt = null;
+      document.getElementById("install-btn").hidden = true;
+    });
+    window.addEventListener("appinstalled", () => (document.getElementById("install-btn").hidden = true));
+  </script>
 </body>
 </html>

@@ -20,6 +20,7 @@ import os
 import re
 import threading
 import zipfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, UploadFile
@@ -55,7 +56,22 @@ PASSWORD_HINTS = {
     "pan": "Date of birth as DDMMYYYY (e.g. 15081990)",
 }
 
-app = FastAPI(title="PVC Card Studio", docs_url=None, redoc_url=None)
+def _quietly(fn) -> None:
+    try:
+        fn()
+    except Exception:
+        pass  # reported to the user on their first cutout instead
+
+
+@asynccontextmanager
+async def _lifespan(_app):
+    # Load the background-removal model in the background so the first
+    # photo doesn't wait for a ~200 MB download and model load.
+    threading.Thread(target=lambda: _quietly(passport.warm_up), daemon=True).start()
+    yield
+
+
+app = FastAPI(title="PVC Card Studio", docs_url=None, redoc_url=None, lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
@@ -120,6 +136,19 @@ def _side(raw: str, doc: Document) -> Side | None:
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
+
+
+# Installable Chrome app (PWA). The service worker is served from the root so
+# its scope covers the whole app.
+@app.get("/sw.js")
+def service_worker() -> FileResponse:
+    return FileResponse(STATIC / "sw.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/manifest.webmanifest")
+def manifest() -> FileResponse:
+    return FileResponse(STATIC / "manifest.webmanifest", media_type="application/manifest+json")
 
 
 @app.get("/api/types")
@@ -269,13 +298,22 @@ def passport_sizes() -> dict:
             "custom": {"head": passport.CUSTOM_HEAD, "top": passport.CUSTOM_TOP}}
 
 
+@app.get("/api/passport/info")
+def passport_info() -> dict:
+    ok = passport.available()
+    return {"available": ok, "gpu": ok and passport.gpu_provider(),
+            "default_quality": passport.default_quality()}
+
+
 @app.post("/api/passport/cutout")
-def passport_cutout(file: UploadFile = File(...)):
-    """Person with transparent background, plus head position in its pixels."""
+def passport_cutout(file: UploadFile = File(...), quality: str = Form("fast")):
+    """Person with transparent background, plus head positions in its pixels."""
+    if quality not in passport.MODELS:
+        raise ApiError(400, "bad_quality", "quality must be fast or best")
     data = _read(file)
     try:
         with WORK_SLOTS:
-            cut = passport.cut_out(data)
+            cut = passport.cut_out(data, quality)
     except ImportError:
         raise ApiError(501, "photo_extra_missing",
                        "Background removal is not installed: pip install -e .[photo]")
