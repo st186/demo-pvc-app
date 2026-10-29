@@ -42,6 +42,16 @@ def test_round_corners():
     assert img.getpixel((505, 0))[3] == 255      # straight edge untouched
 
 
+def test_colour_background_keeps_ink():
+    from pvccard.card import colour_background
+    img = Image.new("RGB", (400, 250), "white")
+    ImageDraw.Draw(img).rectangle((150, 100, 250, 150), fill="black")
+    out = colour_background(img)
+    assert out.getpixel((200, 125)) == (0, 0, 0)          # ink untouched
+    assert out.getpixel((2, 2)) != (255, 255, 255)        # paper coloured
+    assert out.getpixel((2, 2))[0] > out.getpixel((2, 2))[2]   # saffron at top-left
+
+
 def test_card_px():
     assert card_px(300) == (1011, 638)
     assert card_px(600) == (2022, 1275)

@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from starlette.formparsers import MultiPartParser
 
-from .card import DEFAULT_DPI, card_px, fit_to_card, on_white, round_corners
+from .card import DEFAULT_DPI, card_px, colour_background, fit_to_card, on_white, round_corners
 from .convert import Document, PasswordRequired, Side
 from .recipes import BY_NAME, RECIPES
 
@@ -148,7 +148,7 @@ def open_document(file: UploadFile = File(...), password: str = Form(""),
 @app.post("/api/crop")
 def crop(file: UploadFile = File(...), password: str = Form(""), front: str = Form(...),
          back: str = Form(""), fit: str = Form("stretch"), dpi: int = Form(DEFAULT_DPI),
-         sharpen: bool = Form(True)):
+         sharpen: bool = Form(True), colour: bool = Form(False)):
     """Render the chosen boxes as CR80 card images (square corners; the
     browser shows them rounded and export applies the rounding)."""
     if fit not in ("stretch", "contain"):
@@ -163,8 +163,10 @@ def crop(file: UploadFile = File(...), password: str = Form(""), front: str = Fo
                 if not sides["front"]:
                     raise ApiError(400, "bad_box", "Front crop box is required")
                 raw = {name: s and doc.crop(s, dpi) for name, s in sides.items()}
-        return {name: img and _data_url(fit_to_card(img, dpi, fit, sharpen), 95)
-                for name, img in raw.items()}
+        def finish(img: Image.Image) -> str:
+            card = fit_to_card(img, dpi, fit, sharpen)
+            return _data_url(colour_background(card) if colour else card, 95)
+        return {name: img and finish(img) for name, img in raw.items()}
 
 
 def _safe(name: str) -> str:

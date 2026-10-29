@@ -16,6 +16,7 @@ const state = {
   color: "rgb",
   dpi: 600,                // HD by default; 300 = standard
   sharpen: true,
+  colourAadhaar: true,     // soft colour background on Aadhaar cards
   types: [],
 };
 let nextId = 1;
@@ -550,6 +551,7 @@ async function cropItem(item) {
   body.append("fit", item.fit);
   body.append("dpi", state.dpi);
   body.append("sharpen", state.sharpen);
+  body.append("colour", state.colourAadhaar && item.type === "aadhaar");
   const data = await (await api("/api/crop", body)).json();
   if (item.openSeq !== openSeq) return;  // reopened (e.g. preset changed) meanwhile
   const [front, back] = await Promise.all([toBlob(data.front), data.back ? toBlob(data.back) : null]);
@@ -721,6 +723,7 @@ function recropAll() {
 }
 segmented($("quality-mode"), "dpi", (v) => { state.dpi = Number(v); recropAll(); });
 segmented($("sharpen-mode"), "sharpen", (v) => { state.sharpen = v === "on"; recropAll(); });
+segmented($("colour-mode"), "colour", (v) => { state.colourAadhaar = v === "on"; recropAll(); });
 
 // ---------- action bar, downloads, print ----------
 

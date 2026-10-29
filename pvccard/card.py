@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 CARD_W_MM = 85.6
@@ -46,6 +47,23 @@ def fit_to_card(img: Image.Image, dpi: int, fit: str = "stretch",
     return img
 
 
+def colour_background(img: Image.Image) -> Image.Image:
+    """Give the white areas of a card a soft saffron-to-green background.
+
+    Only near-white pixels take the colour, so text, numbers, photo and QR
+    modules keep their original ink. Decorative only: it does not imitate
+    any official security design.
+    """
+    a = np.asarray(img.convert("RGB"), dtype=np.float32)
+    h, w = a.shape[:2]
+    t = np.clip(0.6 * np.linspace(0, 1, h)[:, None] + 0.4 * np.linspace(0, 1, w)[None, :], 0, 1)[..., None]
+    saffron, white, green = (np.array(c, np.float32) for c in ((255, 226, 196), (255, 252, 246), (214, 240, 214)))
+    bg = np.where(t < 0.5, saffron + (white - saffron) * (t / 0.5), white + (green - white) * ((t - 0.5) / 0.5))
+    k = np.clip((a.mean(2, keepdims=True) - 215) / 35, 0, 1)  # 0 for ink, 1 for paper white
+    out = a * (1 - k) + a * bg / 255 * k
+    return Image.fromarray(out.clip(0, 255).astype(np.uint8))
+
+
 def round_corners(img: Image.Image, dpi: int, radius_mm: float = CORNER_RADIUS_MM) -> Image.Image:
     """Make the corners transparent, matching the physical card's rounding."""
     r = round(radius_mm / 25.4 * dpi)
@@ -74,12 +92,14 @@ def on_white(img: Image.Image) -> Image.Image:
 
 def save_card(card: Card, out_dir: Path, stem: str, dpi: int = DEFAULT_DPI,
               fit: str = "stretch", cmyk: bool = False, rounded: bool = True,
-              sharpen: bool = True) -> list[Path]:
+              sharpen: bool = True, colour: bool = False) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     sides = [("front", card.front)] + ([("back", card.back)] if card.back else [])
     pages, written = [], []
     for name, img in sides:
         page = fit_to_card(img, dpi, fit, sharpen)
+        if colour:
+            page = colour_background(page)
         if rounded:
             page = round_corners(page, dpi)
             png = out_dir / f"{stem}_{name}.png"
