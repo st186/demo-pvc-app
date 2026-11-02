@@ -357,7 +357,9 @@ def passport_status(quality: str = "fast") -> dict:
 @app.get("/api/passport/info")
 def passport_info() -> dict:
     ok = passport.available()
-    return {"available": ok, "gpu": ok and passport.gpu_provider(),
+    # Report only a GPU that a model has really run on: GPU packages list
+    # providers even on PCs whose GPU can't use them.
+    return {"available": ok, "gpu": (ok and passport.gpu_active()) or None,
             "default_quality": passport.default_quality()}
 
 

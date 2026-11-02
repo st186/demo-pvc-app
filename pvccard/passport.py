@@ -80,6 +80,11 @@ def gpu_provider() -> str | None:
     return next((p for p in GPU_PROVIDERS if p in ort.get_available_providers()), None)
 
 
+def gpu_active() -> str | None:
+    """The GPU provider a model session has actually run on, else None."""
+    return gpu_provider() if _gpu_active else None
+
+
 def default_quality() -> str:
     # Only once a session has actually run on the GPU (a GPU package can be
     # installed on a PC whose GPU does not work with it).
