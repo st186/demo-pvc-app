@@ -108,6 +108,25 @@ not used because its licence is non-commercial; check MODNet's licence before
 using it commercially too. Faces are found with OpenCV's YuNet model (MIT,
 bundled in `pvccard/models`).
 
+## Windows desktop app (for users without Python)
+
+Download **PVC-Studio-Setup-x.y.z.exe** from the repository's Releases page
+and double-click it. It installs per user (no admin rights) into
+`%LOCALAPPDATA%\Programs\PVC Studio` with a private Python, every package
+and the background-removal model, and adds **PVC Studio** to the Desktop and
+Start menu. The shortcut starts the app in its own Chrome/Edge window; closing
+the window stops it. Uninstall from Settings › Apps. Logs:
+`%LOCALAPPDATA%\PVC Studio\logs\server.log`.
+
+Alternative without the exe: unzip **PVC-Studio-batch-installer.zip** from the
+release and run `windows\install.bat` (downloads everything, ~1 GB).
+
+The installer is built by `.github/workflows/windows.yml` on every push: it
+builds the app folder (`windows/build_env.ps1`), runs the test suite with the
+bundled Python, packages it with Inno Setup (`windows/pvc-studio.iss`),
+installs the result silently, smoke-tests the installed app
+(`windows/smoke_test.py`) and uninstalls it before publishing.
+
 ## Install as a Chrome app
 
 PVC Studio is an installable web app (PWA). Start the server, open it in
