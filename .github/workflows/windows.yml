@@ -1,0 +1,110 @@
+name: Windows installer
+
+# Builds PVC-Studio-Setup.exe on Windows, tests it, installs it, smoke-tests
+# the installed app, uninstalls it, and publishes it as a release.
+on:
+  push:
+    branches: [ccr-f6476d31-7n81kd, main]
+    paths-ignore: ["**.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create the release with the installer
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      APP_VERSION: 0.3.${{ github.run_number }}
+      BUILD: ${{ github.workspace }}\build\PVC Studio
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the self-contained app folder
+        shell: pwsh
+        run: windows\build_env.ps1 -Source "$PWD" -Target "$env:BUILD"
+
+      - name: Run the test suite with the bundled Python
+        shell: pwsh
+        run: |
+          $py = "$env:BUILD\python\python.exe"
+          & $py -m pip install --no-warn-script-location pytest httpx
+          $env:U2NET_HOME = "$env:BUILD\models"
+          & $py -m pytest -q tests -p no:cacheprovider
+          if ($LASTEXITCODE) { exit 1 }
+          & $py -m pip uninstall -y pytest httpx iniconfig pluggy httpcore h11 anyio sniffio 2>$null
+          exit 0
+
+      - name: Build Setup.exe
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress | Out-Null
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc /Q "/DBuildDir=$env:BUILD" "/DAppVersion=$env:APP_VERSION" windows\pvc-studio.iss
+          if ($LASTEXITCODE) { exit 1 }
+          Get-ChildItem dist | Format-Table Name, @{n="MB";e={[math]::Round($_.Length/1MB)}}
+
+      - name: Install Setup.exe silently and smoke-test the installed app
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist\PVC-Studio-Setup-*.exe).FullName
+          $dir = "$env:RUNNER_TEMP\PVC Studio Install"
+          Start-Process $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/TASKS=desktopicon","/DIR=`"$dir`"" -Wait
+          if (-not (Test-Path "$dir\python\pythonw.exe")) { throw "install failed" }
+          $desktop = [Environment]::GetFolderPath("Desktop")
+          if (-not (Test-Path "$desktop\PVC Studio.lnk")) { throw "desktop shortcut missing" }
+
+          # Start exactly what the shortcut starts (minus the browser window).
+          $app = Start-Process "$dir\python\pythonw.exe" -ArgumentList "-m","pvccard.desktop","--no-browser","--port","8790" -WorkingDirectory $dir -PassThru
+          $up = $false
+          for ($i = 0; $i -lt 120 -and -not $up; $i++) {
+            Start-Sleep 1
+            try { Invoke-RestMethod http://127.0.0.1:8790/api/passport/info | Out-Null; $up = $true } catch {}
+          }
+          if (-not $up) { Get-Content "$env:LOCALAPPDATA\PVC Studio\logs\server.log" -Tail 50; throw "server did not start" }
+
+          & "$dir\python\python.exe" windows\smoke_test.py http://127.0.0.1:8790
+          $code = $LASTEXITCODE
+          Stop-Process -Id $app.Id -Force
+          Get-Content "$env:LOCALAPPDATA\PVC Studio\logs\server.log" -Tail 15
+          exit $code
+
+      - name: Uninstall
+        shell: pwsh
+        run: |
+          $dir = "$env:RUNNER_TEMP\PVC Studio Install"
+          Start-Process "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+          Start-Sleep 3
+          if (Test-Path "$dir\python") { throw "uninstall left files behind" }
+          if (Test-Path "$([Environment]::GetFolderPath('Desktop'))\PVC Studio.lnk") { throw "uninstall left the shortcut" }
+
+      - name: Package the batch-file installer
+        shell: pwsh
+        run: |
+          git archive --format=zip --prefix=PVC-Studio/ -o "dist\PVC-Studio-batch-installer.zip" HEAD pvccard windows pyproject.toml README.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PVC-Studio-Windows-${{ env.APP_VERSION }}
+          path: dist\*
+          retention-days: 30
+
+      - name: Publish release
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.APP_VERSION }}
+          name: PVC Studio ${{ env.APP_VERSION }} (Windows)
+          prerelease: true
+          files: dist/*
+          body: |
+            **PVC-Studio-Setup-${{ env.APP_VERSION }}.exe** — double-click to install (no Python or admin rights needed). Adds PVC Studio to the Desktop and Start menu; uninstall from Settings > Apps.
+
+            **PVC-Studio-batch-installer.zip** — alternative: unzip and run `windows\install.bat` (downloads everything, needs internet).
+
+            Built and tested on Windows by this workflow: test suite, silent install, smoke test of the installed app, uninstall.

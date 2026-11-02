@@ -139,3 +139,11 @@ def test_export_rejects_wrong_size():
     Image.new("RGB", (100, 60)).save(buf, "PNG")
     r = client.post("/api/export", files=[("files", ("a__front.png", buf.getvalue(), "image/png"))])
     assert r.status_code == 400
+
+
+def test_unicode_download_names():
+    files = [("files", ("पहचान कार्ड__front.png", png_bytes("red"), "image/png"))]
+    r = client.post("/api/export", files=files, data={"format": "jpg"})
+    assert r.status_code == 200
+    cd = r.headers["content-disposition"]
+    assert "filename*=UTF-8''" in cd and cd.isascii()

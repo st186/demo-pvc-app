@@ -20,6 +20,7 @@ import os
 import re
 import threading
 import zipfile
+from urllib.parse import quote
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -204,8 +205,11 @@ def _safe(name: str) -> str:
 
 
 def _attachment(data: bytes, media: str, filename: str) -> Response:
-    return Response(data, media_type=media,
-                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    # HTTP headers are Latin-1: give an ASCII name plus the full Unicode name
+    # (RFC 6266), so files named in Hindi, Bengali etc. still download.
+    ascii_name = filename.encode("ascii", "replace").decode().replace("?", "_")
+    disposition = f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(filename)}'
+    return Response(data, media_type=media, headers={"Content-Disposition": disposition})
 
 
 @app.post("/api/export")

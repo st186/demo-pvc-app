@@ -34,4 +34,4 @@ build-backend = "setuptools.build_meta"
 packages = ["pvccard"]
 
 [tool.setuptools.package-data]
-pvccard = ["static/*", "models/*"]
+pvccard = ["static/*", "static/icons/*", "models/*"]

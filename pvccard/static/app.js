@@ -812,10 +812,18 @@ async function exportCards(items, sides, format) {
     body.append("format", format);
     body.append("cmyk", state.color === "cmyk");
     const res = await api("/api/export", body);
-    let name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "")?.[1] || "card";
+    let name = downloadName(res, "card");
     if (batches.length > 1) name = name.replace(/(\.\w+)$/, `_part${n + 1}$1`);
     saveBlob(await res.blob(), name);
   }
+}
+
+// File name from Content-Disposition, preferring the UTF-8 form (filename*).
+function downloadName(res, fallback) {
+  const cd = res.headers.get("Content-Disposition") || "";
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+  if (utf8) { try { return decodeURIComponent(utf8[1]); } catch {} }
+  return /filename="([^"]+)"/.exec(cd)?.[1] || fallback;
 }
 
 async function withBusy(btn, fn) {

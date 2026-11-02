@@ -66,13 +66,23 @@ def available() -> bool:
         return False
 
 
+# GPU state: None until a model session proves whether the GPU works.
+_gpu_active: bool | None = None
+_gpu_failed = False
+
+
 def gpu_provider() -> str | None:
+    """The GPU provider to try, unless it has already failed on this machine."""
+    if _gpu_failed:
+        return None
     import onnxruntime as ort
     return next((p for p in GPU_PROVIDERS if p in ort.get_available_providers()), None)
 
 
 def default_quality() -> str:
-    return "best" if available() and gpu_provider() else "fast"
+    # Only once a session has actually run on the GPU (a GPU package can be
+    # installed on a PC whose GPU does not work with it).
+    return "best" if available() and _gpu_active and gpu_provider() else "fast"
 
 
 # Exact download sizes, for the first-run download progress bar.
@@ -108,37 +118,64 @@ def status(quality: str) -> dict:
     if recent:
         seconds = sum(recent) / len(recent)
     else:
-        seconds = {"fast": 2.0, "best": 25.0}[quality] if not gpu_provider() else 1.5
+        seconds = 1.5 if _gpu_active and gpu_provider() else {"fast": 2.0, "best": 25.0}[quality]
     return {"state": state, "progress": round(progress, 3), "seconds": round(seconds, 1)}
-# BiRefNet needs several GB per run; never run two at once.
-_best_lock = threading.Lock()
+
+
+# Runs that must not overlap: GPU sessions (DirectML can't run concurrently)
+# and BiRefNet on the CPU (several GB per run).
+_run_locks = {q: threading.Lock() for q in MODELS}
+
+
+def _new_session(quality: str, gpu: str | None):
+    import onnxruntime as ort
+    opts = ort.SessionOptions()
+    if quality == "best" and not gpu:
+        # Without the arena the CPU peak drops from ~12 GB to ~7 GB.
+        opts.enable_cpu_mem_arena = False
+    if gpu == "DmlExecutionProvider" or (quality == "best" and not gpu):
+        opts.enable_mem_pattern = False  # required by DirectML
+        opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    providers = [gpu, "CPUExecutionProvider"] if gpu else ["CPUExecutionProvider"]
+    cls = _session_class(quality)
+    return cls(MODELS[quality], opts, providers=providers)
 
 
 def _rembg_session(quality: str):
+    global _gpu_active, _gpu_failed
     with _session_lock:
         if quality not in _sessions:
-            # Optional dependencies, imported lazily.
-            import onnxruntime as ort
-            from rembg.sessions import sessions_class
-            opts = ort.SessionOptions()
-            gpu = gpu_provider()
-            if quality == "best" and not gpu:
-                # Without the arena the CPU peak drops from ~12 GB to ~7 GB.
-                opts.enable_cpu_mem_arena = False
-            if gpu == "DmlExecutionProvider" or (quality == "best" and not gpu):
-                opts.enable_mem_pattern = False  # required by DirectML
-            providers = [gpu, "CPUExecutionProvider"] if gpu else ["CPUExecutionProvider"]
-            cls = {c.name(): c for c in sessions_class}[MODELS[quality]]
+            cls = _session_class(quality)
             downloaded = (Path(cls.model_dir()) / f"{cls.name()}.onnx").exists()
             _state[quality] = "loading" if downloaded else "downloading"
+            gpu = gpu_provider()
             try:
-                session = cls(MODELS[quality], opts, providers=providers)
+                try:
+                    session = _new_session(quality, gpu)
+                except Exception:
+                    if not gpu:
+                        raise
+                    _gpu_failed = True  # GPU unusable here: fall back to the CPU
+                    session = _new_session(quality, None)
             except Exception:
                 _state[quality] = "failed"
                 raise
+            if gpu and not _gpu_failed:
+                _gpu_active = gpu in session.inner_session.get_providers()
+                _gpu_failed = not _gpu_active
             _sessions[quality] = session
             _state[quality] = "ready"
         return _sessions[quality]
+
+
+def _forget_gpu_sessions() -> None:
+    """After a GPU failure mid-run, drop sessions so they reload on the CPU."""
+    global _gpu_failed, _gpu_active
+    with _session_lock:
+        _gpu_failed, _gpu_active = True, False
+        _sessions.clear()
+        for q in _state:
+            _state[q] = "idle"
 
 
 @dataclass
@@ -169,13 +206,16 @@ class Cutout:
         return self.heads[0].center
 
 
-FACE_MODEL = str(Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx")
+FACE_MODEL = Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
+# Loaded from memory: OpenCV on Windows cannot open paths with non-ASCII
+# characters (e.g. a user name in Hindi or Bengali).
+_FACE_MODEL_BYTES = np.fromfile(FACE_MODEL, np.uint8)
 
 
 def _faces(rgb: np.ndarray) -> list[tuple[float, float, float, float]]:
     """All faces as (centre x, top y, chin y, width), largest first, using YuNet."""
     h, w = rgb.shape[:2]
-    det = cv2.FaceDetectorYN.create(FACE_MODEL, "", (w, h), score_threshold=0.7)
+    det = cv2.FaceDetectorYN.create("onnx", _FACE_MODEL_BYTES, np.array([], np.uint8), (w, h), 0.7)
     _, faces = det.detect(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
     if faces is None:
         return []
@@ -192,24 +232,42 @@ def _faces(rgb: np.ndarray) -> list[tuple[float, float, float, float]]:
 
 
 def warm_up() -> None:
-    """Load (and on first run download) the default model ahead of the first photo."""
+    """Load (and on first run download) the models ahead of the first photo.
+
+    The fast model loads first and finds out whether the GPU works; with a
+    working GPU the best model, then the default, is loaded too.
+    """
     if available():
-        _rembg_session(default_quality())
+        _rembg_session("fast")
+        if _gpu_active:
+            _rembg_session("best")
+
+
+def _remove(img: Image.Image, quality: str) -> Image.Image:
+    from rembg import remove
+
+    for attempt in range(2):
+        session = _rembg_session(quality)
+        on_gpu = bool(_gpu_active and gpu_provider())
+        serial = on_gpu or quality == "best"
+        try:
+            if serial:
+                with _run_locks[quality]:
+                    return remove(img, session=session, post_process_mask=True)
+            return remove(img, session=session, post_process_mask=True)
+        except Exception:
+            if not on_gpu or attempt:
+                raise
+            _forget_gpu_sessions()  # GPU failed mid-run: retry once on the CPU
+    raise RuntimeError("unreachable")
 
 
 def cut_out(data: bytes, quality: str = "fast") -> Cutout:
     """Remove the background and locate each head."""
-    from rembg import remove
-
     img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
     img.thumbnail((MAX_INPUT_PX, MAX_INPUT_PX), Image.LANCZOS)
-    session = _rembg_session(quality)
     started = time.monotonic()
-    if quality == "best" and not gpu_provider():
-        with _best_lock:
-            rgba = remove(img, session=session, post_process_mask=True)
-    else:
-        rgba = remove(img, session=session, post_process_mask=True)
+    rgba = _remove(img, quality)
     alpha = np.asarray(rgba.getchannel("A"))
     if (alpha > 128).sum() < 0.02 * alpha.size:
         raise ValueError("No person found in this photo")
