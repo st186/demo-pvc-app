@@ -28,13 +28,16 @@ jobs:
       - name: Run the test suite with the bundled Python
         shell: pwsh
         run: |
+          # Test tools go into a separate folder so nothing is added to (or
+          # removed from) the app that ships. (The embedded Python ignores
+          # PYTHONPATH, so the folder is put on sys.path explicitly.)
           $py = "$env:BUILD\python\python.exe"
-          & $py -m pip install --no-warn-script-location pytest httpx
-          $env:U2NET_HOME = "$env:BUILD\models"
-          & $py -m pytest -q tests -p no:cacheprovider
+          $deps = "$env:RUNNER_TEMP\testdeps"
+          & $py -m pip install --no-warn-script-location --target $deps pytest httpx
           if ($LASTEXITCODE) { exit 1 }
-          & $py -m pip uninstall -y pytest httpx iniconfig pluggy httpcore h11 anyio sniffio 2>$null
-          exit 0
+          $env:U2NET_HOME = "$env:BUILD\models"
+          & $py -c "import sys; sys.path.append(r'$deps'); import pytest; sys.exit(pytest.main(['-q', 'tests', '-p', 'no:cacheprovider']))"
+          exit $LASTEXITCODE
 
       - name: Build Setup.exe
         shell: pwsh
