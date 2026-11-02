@@ -62,6 +62,33 @@ def _to_frac(box: Box | None, size: tuple[float, float]) -> Frac:
     return (l / W, (H - t) / H, r / W, (H - b) / H)
 
 
+MAX_IMAGE_PIXELS = 80_000_000
+
+
+def open_image(data: bytes) -> Image.Image:
+    """Open an uploaded image, refusing huge ones before decoding them."""
+    img = Image.open(io.BytesIO(data))
+    if img.width * img.height > MAX_IMAGE_PIXELS:
+        raise ValueError(f"Image is too large ({img.width}×{img.height})")
+    return img
+
+
+class PresetMismatch(ValueError):
+    pass
+
+
+def _check_fits(recipe, sizes: list[tuple[float, float]]) -> None:
+    """A preset picked by hand must fit this document's pages."""
+    for page, box in ((recipe.front_page, recipe.front), (recipe.back_page, recipe.back)):
+        if page >= len(sizes):
+            raise PresetMismatch(f"This file has no page {page + 1}, so it is not a {recipe.label}")
+        if box is not None:
+            W, H = sizes[page]
+            l, b, r, t = box
+            if l < -2 or b < -2 or r > W + 2 or t > H + 2:
+                raise PresetMismatch(f"This file's page layout does not match the {recipe.label} preset")
+
+
 class Document:
     def __init__(self, data: bytes, filename: str = "", password: str | None = None):
         self.is_pdf = data[:5] == b"%PDF-" or filename.lower().endswith(".pdf")
@@ -70,7 +97,7 @@ class Document:
             self.sizes = [p.get_size() for p in self.pdf]
         else:
             # Phone photos store rotation in EXIF; apply it so cards are upright.
-            self.image = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
+            self.image = ImageOps.exif_transpose(open_image(data)).convert("RGB")
             self.sizes = [self.image.size]
 
     @classmethod
@@ -105,6 +132,8 @@ class Document:
         if self.is_pdf:
             info = inspect(self.pdf)
             recipe = BY_NAME[doc_type] if doc_type != "auto" else pick(info)
+            if recipe and doc_type != "auto":
+                _check_fits(recipe, self.sizes)
             if recipe:
                 return Suggestion(
                     recipe.name, recipe.label,

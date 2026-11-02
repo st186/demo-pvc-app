@@ -20,7 +20,7 @@ def find_cards(img: Image.Image, max_cards: int = 2,
     input resolution.
     """
     k = WORK_PX / max(img.size)
-    small = img.convert("L").resize((round(img.width * k), round(img.height * k)), Image.BILINEAR)
+    small = img.convert("L").resize((max(1, round(img.width * k)), max(1, round(img.height * k))), Image.BILINEAR)
     g = np.array(small)
     H, W = g.shape
     mask = (g < 235).astype(np.uint8) * 255

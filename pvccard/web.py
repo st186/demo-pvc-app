@@ -19,32 +19,40 @@ import math
 import os
 import re
 import threading
+import unicodedata
+import warnings
 import zipfile
-from urllib.parse import quote
+from contextlib import nullcontext
+from urllib.parse import quote, urlparse
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from starlette.formparsers import MultiPartParser
 
 from .card import DEFAULT_DPI, card_px, colour_background, fit_to_card, on_white, round_corners
-from .convert import Document, PasswordRequired, Side
+from .convert import Document, PasswordRequired, PresetMismatch, Side
 from .recipes import BY_NAME, RECIPES
 from . import passport
 
 MAX_UPLOAD = 15 * 1024 * 1024
 MAX_EXPORT_FILES = 100
 MAX_PDF_PAGES = 40       # single combined PDF export
+MAX_PREVIEW_PAGES = 12   # pages shown in the crop workspace
+MAX_SHEET_PAGES = 20     # photo sheet pages per /api/pdf request (the browser splits)
 QUALITIES = (300, 600)   # standard, HD
 STATIC = Path(__file__).parent / "static"
 
 # Keep uploads in memory instead of spilling files over 1 MB to a temp file.
 MultiPartParser.spool_max_size = MAX_UPLOAD + 1024 * 1024
-# Refuse absurdly large images early (decompression bombs).
+# Refuse absurdly large images early (decompression bombs): Pillow only warns
+# between 1x and 2x this limit, so make that an error too.
 Image.MAX_IMAGE_PIXELS = 80_000_000
+warnings.simplefilter("error", Image.DecompressionBombWarning)
+MAX_PAGE_PIXELS = 40_000_000  # /api/pdf pages: A4 at 600 DPI is ~35 MP
 
 
 PDFIUM_LOCK = threading.Lock()
@@ -81,6 +89,20 @@ class ApiError(Exception):
         self.status, self.code, self.message = status, code, message
 
 
+@app.middleware("http")
+async def _guard(request: Request, call_next):
+    # The server listens on localhost; refuse requests that web pages on other
+    # sites send to it (a cross-origin POST needs no CORS preflight).
+    origin = request.headers.get("origin")
+    if request.method != "GET" and origin and urlparse(origin).netloc != request.headers.get("host"):
+        return JSONResponse({"error": "forbidden", "message": "Cross-origin request refused"}, status_code=403)
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        # Revalidate app files every time so an update never mixes old and new code.
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @app.exception_handler(ApiError)
 def _api_error(_, e: ApiError) -> JSONResponse:
     return JSONResponse({"error": e.code, "message": e.message}, status_code=e.status)
@@ -107,8 +129,15 @@ def _read(file: UploadFile) -> bytes:
     return data
 
 
+def _pdfium_lock(data: bytes, filename: str):
+    """PDFIUM_LOCK for PDFs; images need no lock, so a slow image decode
+    never holds up everyone else's PDFs."""
+    is_pdf = data[:5] == b"%PDF-" or filename.lower().endswith(".pdf")
+    return PDFIUM_LOCK if is_pdf else nullcontext()
+
+
 def _open(data: bytes, filename: str, password: str) -> Document:
-    """Call with PDFIUM_LOCK held."""
+    """Call inside _pdfium_lock()."""
     try:
         return Document(data, filename, password or None)
     except PasswordRequired as e:
@@ -125,7 +154,7 @@ def _side(raw: str, doc: Document) -> Side | None:
         page = int(d["page"])
         values = [float(v) for v in d["box"]]
         x0, y0, x1, y1 = (min(max(v, 0.0), 1.0) for v in values)
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, OverflowError):
         raise ApiError(400, "bad_box", "Invalid crop box")
     if not all(math.isfinite(v) for v in values):
         raise ApiError(400, "bad_box", "Invalid crop box")
@@ -166,10 +195,14 @@ def open_document(file: UploadFile = File(...), password: str = Form(""),
         raise ApiError(400, "bad_type", "Unknown document type")
     data = _read(file)
     with WORK_SLOTS:
-        with PDFIUM_LOCK:
+        with _pdfium_lock(data, file.filename or ""):
             with _open(data, file.filename or "", password) as doc:
-                s = doc.suggest(doc_type)
-                previews = [doc.preview(i, 1400) for i in range(min(doc.page_count, 4))]
+                try:
+                    s = doc.suggest(doc_type)
+                except PresetMismatch as e:
+                    raise ApiError(422, "preset_mismatch", f"{e}. Choose Auto-detect or another preset.")
+                previews = [doc.preview(i, 1400 if doc.page_count <= 4 else 1000)
+                            for i in range(min(doc.page_count, MAX_PREVIEW_PAGES))]
         pages = [{"width": p.width, "height": p.height, "image": _data_url(p, 85)} for p in previews]
     side = lambda x: x and {"page": x.page, "box": list(x.box)}
     return {"type": s.doc_type, "label": s.label, "pages": pages,
@@ -188,7 +221,7 @@ def crop(file: UploadFile = File(...), password: str = Form(""), front: str = Fo
         raise ApiError(400, "bad_dpi", "dpi must be 300 or 600")
     data = _read(file)
     with WORK_SLOTS:
-        with PDFIUM_LOCK:
+        with _pdfium_lock(data, file.filename or ""):
             with _open(data, file.filename or "", password) as doc:
                 sides = {name: _side(raw, doc) for name, raw in (("front", front), ("back", back))}
                 if not sides["front"]:
@@ -201,7 +234,10 @@ def crop(file: UploadFile = File(...), password: str = Form(""), front: str = Fo
 
 
 def _safe(name: str) -> str:
-    return re.sub(r"[^\w-]+", "_", name).strip("_")[:60] or "card"
+    # Keep letters, digits and combining marks (Devanagari/Bengali vowel signs).
+    kept = "".join(c if c.isalnum() or c in "-_" or unicodedata.category(c).startswith("M") else "_"
+                   for c in name)
+    return re.sub(r"_+", "_", kept).strip("_")[:60] or "card"
 
 
 def _attachment(data: bytes, media: str, filename: str) -> Response:
@@ -238,13 +274,14 @@ def export(files: list[UploadFile] = File(...), format: str = Form("zip"),
             raise ApiError(400, "bad_name", "Files must be named <card>__front / <card>__back")
         try:
             img = Image.open(io.BytesIO(f.file.read(MAX_UPLOAD)))
+            q = sizes.get(img.size)
+            if q:
+                img = img.convert("RGB")  # decodes; a truncated file fails here
         except Exception:
             raise ApiError(400, "bad_image", "Card images must be JPEG or PNG")
-        q = sizes.get(img.size)
         if not q or (state["dpi"] and q != state["dpi"]):
             raise ApiError(400, "bad_size", "Card images must all be CR80 at 300 or 600 DPI")
         state["dpi"] = q
-        img = img.convert("RGB")
         if rounded:
             img = on_white(round_corners(img, q))
         return _safe(stem), side, img
@@ -260,6 +297,11 @@ def export(files: list[UploadFile] = File(...), format: str = Form("zip"),
         pages[0].save(buf, "PDF", resolution=state["dpi"], save_all=True, append_images=pages[1:])
         return buf.getvalue()
 
+    with WORK_SLOTS:  # each export holds tens of MB of pixels
+        return _export(files, format, load, jpeg, pdf)
+
+
+def _export(files, format, load, jpeg, pdf) -> Response:
     if format == "pdf":
         loaded = [load(f) for f in files]
         names = {n for n, _, _ in loaded}
@@ -346,14 +388,22 @@ def passport_cutout(file: UploadFile = File(...), quality: str = Form("fast")):
 @app.post("/api/pdf")
 def pages_pdf(pages: list[UploadFile] = File(...), dpi: int = Form(300), name: str = Form("photos")):
     """Combine page images (e.g. A4 photo sheets) into one PDF at `dpi`."""
-    if len(pages) > 20:
-        raise ApiError(413, "too_many", "At most 20 pages per PDF")
+    if len(pages) > MAX_SHEET_PAGES:
+        raise ApiError(413, "too_many", f"At most {MAX_SHEET_PAGES} pages per PDF")
     if dpi not in QUALITIES:
         raise ApiError(400, "bad_dpi", "dpi must be 300 or 600")
-    try:
-        imgs = [Image.open(io.BytesIO(p.file.read(MAX_UPLOAD))).convert("RGB") for p in pages]
-    except Exception:
-        raise ApiError(400, "bad_image", "Pages must be JPEG or PNG")
-    buf = io.BytesIO()
-    imgs[0].save(buf, "PDF", resolution=dpi, save_all=True, append_images=imgs[1:])
+    with WORK_SLOTS:
+        imgs = []
+        for p in pages:
+            try:
+                img = Image.open(io.BytesIO(p.file.read(MAX_UPLOAD)))
+                too_big = img.width * img.height > MAX_PAGE_PIXELS
+                if not too_big:
+                    imgs.append(img.convert("RGB"))
+            except Exception:
+                raise ApiError(400, "bad_image", "Pages must be JPEG or PNG")
+            if too_big:
+                raise ApiError(413, "too_large", "Page images must be at most A4 at 600 DPI")
+        buf = io.BytesIO()
+        imgs[0].save(buf, "PDF", resolution=dpi, save_all=True, append_images=imgs[1:])
     return _attachment(buf.getvalue(), "application/pdf", f"{_safe(name)}.pdf")

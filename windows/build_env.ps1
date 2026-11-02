@@ -56,8 +56,12 @@ if (-not (Test-Path $python)) {
 }
 
 Step "Installing PVC Studio and its packages (this is the big download)"
+# The embeddable Python ignores PYTHONPATH, so pip's isolated build env can't
+# see setuptools: install the build tools here and build without isolation.
+& $python -m pip install --no-warn-script-location --disable-pip-version-check --upgrade setuptools wheel
+Check "build tools install"
 # DirectML lets background removal use any Windows GPU; it falls back to the CPU.
-& $python -m pip install --no-warn-script-location --disable-pip-version-check --upgrade "$Source[web,photo-gpu]"
+& $python -m pip install --no-warn-script-location --disable-pip-version-check --upgrade --no-build-isolation "$Source[web,photo-gpu]"
 Check "PVC Studio install"
 
 if (-not $NoModel) {

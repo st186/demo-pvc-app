@@ -147,3 +147,58 @@ def test_unicode_download_names():
     assert r.status_code == 200
     cd = r.headers["content-disposition"]
     assert "filename*=UTF-8''" in cd and cd.isascii()
+
+
+def test_wrong_preset_is_a_clear_error():
+    # One-page scan opened as a two-page Ayushman card / an A4-sized DL layout.
+    buf = io.BytesIO()
+    Image.new("RGB", (600, 800), "white").save(buf, "PDF")
+    for preset in ("ayushman", "dl_wb"):
+        r = client.post("/api/open", files={"file": ("x.pdf", buf.getvalue(), "application/pdf")},
+                        data={"doc_type": preset})
+        assert r.status_code == 422 and r.json()["error"] == "preset_mismatch", preset
+
+
+def test_many_pages_are_previewed():
+    buf = io.BytesIO()
+    pages = [Image.new("RGB", (300, 400), "white") for _ in range(6)]
+    pages[0].save(buf, "PDF", save_all=True, append_images=pages[1:])
+    r = client.post("/api/open", files={"file": ("six.pdf", buf.getvalue(), "application/pdf")})
+    assert len(r.json()["pages"]) == 6
+
+
+def test_cross_origin_posts_are_refused():
+    r = client.post("/api/open", files={"file": ("x.png", b"x", "image/png")},
+                    headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403
+    r = client.post("/api/open", files={"file": ("x.png", b"x", "image/png")},
+                    headers={"Origin": "http://testserver"})
+    assert r.status_code == 422  # same origin goes through (and the file is junk)
+
+
+def test_app_files_are_revalidated():
+    assert client.get("/").headers["cache-control"] == "no-cache"
+    assert client.get("/static/app.js").headers["cache-control"] == "no-cache"
+
+
+def test_hostile_inputs_get_clean_errors():
+    thin = io.BytesIO()
+    Image.new("RGB", (30000, 4), "white").save(thin, "PNG")
+    r = client.post("/api/open", files={"file": ("thin.png", thin.getvalue(), "image/png")})
+    assert r.status_code == 200
+    r = client.post("/api/crop", files={"file": ("x.png", scan_png(), "image/png")},
+                    data={"front": '{"page": 1e309, "box": [0, 0, 1, 1]}'})
+    assert r.status_code == 400
+    bad = png_bytes("red")[:-200]  # truncated PNG of the right size
+    r = client.post("/api/export", files=[("files", ("x__front.png", bad, "image/png"))])
+    assert r.status_code == 400
+    big = io.BytesIO()
+    Image.new("L", (9000, 9000)).save(big, "PNG")  # 81 MP: over the bomb limit
+    r = client.post("/api/open", files={"file": ("big.png", big.getvalue(), "image/png")})
+    assert r.status_code == 422
+
+
+def test_safe_names_keep_indian_scripts():
+    from pvccard.web import _safe
+    assert _safe("पहचान कार्ड") == "पहचान_कार्ड"
+    assert _safe("José Kumar") == "José_Kumar"

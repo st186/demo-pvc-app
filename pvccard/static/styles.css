@@ -293,6 +293,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .empty-state p { color: var(--teal); font-size: 13px; max-width: 340px; }
 .empty-state b { color: var(--teal); }
 
+.seg.pages .move-here { background: var(--accent-soft); color: var(--accent-2); }
+
 /* ---------- column 3 ---------- */
 #col-preview { overflow: auto; padding-bottom: 12px; }
 .preview-box {
@@ -407,6 +409,7 @@ input[type=range].gold { --thumb: var(--gold); }
 .chip-tool.teal { color: var(--teal); }
 .chip-tool.teal svg { color: var(--teal); }
 .chip-tool.busy { color: var(--muted); }
+.chip-tool.warn, .chip-tool.warn svg { color: var(--gold); }
 .pp-stage img { filter: none; }
 .pp-stage { overflow: hidden; }
 .pp-stage .crop-box { box-shadow: 0 0 0 9999px rgba(0, 0, 0, .5); }
@@ -535,6 +538,13 @@ input[type=range].violet { --thumb: var(--violet); }
   .topbar { flex-wrap: wrap; }
   .tool-switch { order: 3; width: 100%; margin-left: 0; justify-content: stretch; }
   .tool-switch button { flex: 1; justify-content: center; }
-  .sheet-body { grid-template-columns: 1fr; overflow: auto; }
+  /* Small screens: compact box labels, and only on the box being edited. */
+  .crop-box::before { font-size: 9.5px; padding: 3px 6px; top: 4px; }
+  .crop-box:not(.active)::before { content: none; }
+  /* Phones: stack the print dialog and let it scroll as one column. */
+  .sheet-body { grid-template-columns: 1fr; overflow: auto; display: block; }
+  .sheet-side { min-height: auto; margin-bottom: 14px; }
+  .copies-list { flex: none; max-height: none; overflow: visible; }
+  .sheet-preview { min-height: 320px; }
   .topbar { padding: 10px 8px; }
 }

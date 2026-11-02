@@ -100,8 +100,12 @@ function chooseSize(id) {
 
 for (const id of ["pp-custom-w", "pp-custom-h"]) {
   $(id).addEventListener("change", () => {
-    pp.custom.w = clamp(Math.round(Number($("pp-custom-w").value) || 35), 15, 150);
-    pp.custom.h = clamp(Math.round(Number($("pp-custom-h").value) || 45), 15, 150);
+    const read = (id, fallback) => {
+      const v = Number($(id).value);
+      return clamp(Math.round(Number.isFinite(v) && $(id).value !== "" ? v : fallback), 15, 150);
+    };
+    pp.custom.w = read("pp-custom-w", pp.custom.w);
+    pp.custom.h = read("pp-custom-h", pp.custom.h);
     $("pp-custom-w").value = pp.custom.w;
     $("pp-custom-h").value = pp.custom.h;
     chooseSize("custom");
@@ -197,8 +201,9 @@ async function cutOut(item) {
       } else {
         workStart ||= performance.now();
         const t = (performance.now() - workStart) / 1000;
-        const p = 0.15 + 0.8 * (1 - Math.exp((-1.6 * t) / Math.max(0.5, st.seconds)));
-        setProgress(item, p, t < st.seconds * 0.85 ? "Removing background…" : "Finding face & refining edges…");
+        // Eases towards 92% over the expected time; slower photos just creep on.
+        const p = 0.15 + 0.77 * (1 - Math.exp((-1.6 * t) / Math.max(0.5, st.seconds)));
+        setProgress(item, p, t > st.seconds * 1.5 ? "Removing background… (taking longer than usual)" : "Removing background…");
       }
     } catch { /* keep the last progress */ }
     timer = setTimeout(poll, 400);
@@ -339,7 +344,9 @@ $("pp-clear").addEventListener("click", () => {
 // Frame (page fractions x0, y0, x1, y1) so all heads, crown to chin, fill
 // `head` of the photo height with `top` space above, centred between them.
 function autoBox(item) {
-  const s = sizeObj(), { width: W, height: H, heads } = item.cut;
+  const s = sizeObj(), { width: W, height: H } = item.cut;
+  // Heads come largest first; single-person presets frame only the main one.
+  const heads = s.people ? item.cut.heads.slice(0, s.people) : item.cut.heads;
   const A = s.w_mm / s.h_mm;
   const top = Math.min(...heads.map((h) => h.crown));
   const bottom = Math.max(...heads.map((h) => h.chin));
@@ -347,7 +354,21 @@ function autoBox(item) {
   const right = Math.max(...heads.map((h) => h.center + 0.75 * h.width));
   let bh = (bottom - top) / s.head, bw = bh * A;
   if (right - left > 0.9 * bw) { bw = (right - left) / 0.9; bh = bw / A; }
-  const x0 = (left + right) / 2 - bw / 2, y0 = top - s.top * bh;
+  let x0 = (left + right) / 2 - bw / 2, y0 = top - s.top * bh;
+
+  // Stay inside the photo where the rules allow: move the frame up (keeping
+  // a little space above the head), then zoom in a bit (head at most 85% of
+  // the height), so the bottom isn't a cut-off torso over plain background.
+  if (y0 + bh > H) y0 -= Math.min(y0 + bh - H, Math.max(0, top - y0 - 0.03 * bh));
+  if (y0 + bh > H) {
+    const k = Math.max((H - y0) / bh, (bottom - top) / (0.85 * bh));
+    if (k < 1) {
+      const cx = x0 + bw / 2, keepTop = top - y0;
+      bw *= k; bh *= k;
+      x0 = cx - bw / 2; y0 = top - keepTop * k;
+    }
+  }
+  if (bw <= W) x0 = clamp(x0, 0, W - bw);
   return [x0 / W, y0 / H, (x0 + bw) / W, (y0 + bh) / H];
 }
 
@@ -407,7 +428,12 @@ function renderWorkspacePP() {
   const chip = $("pp-chip-status");
   chip.classList.toggle("teal", ready);
   chip.classList.toggle("busy", !ready);
-  chip.querySelector("span").textContent = ready ? `${item.cut.heads.length > 1 ? `${item.cut.heads.length} People` : "Character"} Isolated` : "AI Cutout…";
+  // Fewer source pixels in the frame than the print needs: it will look soft.
+  const lowRes = ready && (item.box[3] - item.box[1]) * item.cut.height < 0.6 * mmPx(s.h_mm);
+  chip.classList.toggle("warn", lowRes);
+  chip.querySelector("span").textContent = !ready ? "AI Cutout…"
+    : lowRes ? "Low-resolution photo · print may look blurry"
+    : `${item.cut.heads.length > 1 ? `${item.cut.heads.length} People` : "Character"} Isolated`;
   if (!ready) {
     const empty = $("pp-work-empty");
     empty.querySelector("h3").textContent = item?.status === "busy" ? "AI Cutout in progress…" : item?.status === "error" ? "Could not process" : "Passport Photo Workspace";
@@ -758,13 +784,21 @@ async function fullSheetBlobs() {
   return out;
 }
 
+const PDF_PAGES_PER_FILE = 20;  // server limit per /api/pdf request
+
 $("sheet-pdf").addEventListener("click", (e) => withBusy(e.currentTarget, async () => {
-  const body = new FormData();
-  for (const [i, b] of (await fullSheetBlobs()).entries()) body.append("pages", b, `page${i + 1}.jpg`);
-  body.append("dpi", PP_DPI);
-  body.append("name", `passport_photos_${sizeObj().id}`);
-  const res = await api("/api/pdf", body);
-  saveBlob(await res.blob(), `passport_photos_${sizeObj().id}.pdf`);
+  const blobs = await fullSheetBlobs();
+  const parts = Math.ceil(blobs.length / PDF_PAGES_PER_FILE);
+  for (let p = 0; p < parts; p++) {
+    const body = new FormData();
+    blobs.slice(p * PDF_PAGES_PER_FILE, (p + 1) * PDF_PAGES_PER_FILE)
+      .forEach((b, i) => body.append("pages", b, `page${i + 1}.jpg`));
+    const name = `passport_photos_${sizeObj().id}${parts > 1 ? `_part${p + 1}` : ""}`;
+    body.append("dpi", PP_DPI);
+    body.append("name", name);
+    const res = await api("/api/pdf", body);
+    saveBlob(await res.blob(), `${name}.pdf`);
+  }
 }));
 
 $("sheet-print").addEventListener("click", async () => {

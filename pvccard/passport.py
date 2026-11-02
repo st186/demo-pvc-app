@@ -36,6 +36,7 @@ class PhotoSize:
     head: float  # crown-to-chin height as a fraction of photo height
     top: float   # gap above the crown as a fraction of photo height
     description: str = ""
+    people: int = 1  # heads to frame; 0 = everyone in the photo
 
 
 SIZES = {s.id: s for s in (
@@ -44,10 +45,10 @@ SIZES = {s.id: s for s in (
     PhotoSize("stamp", "Stamp Size Photo (2.5×3.0 cm)", 25, 30, 0.66, 0.08,
               "School ID, college admission, documents"),
     PhotoSize("joint", "Joint Photo · 2 People (4.5×3.5 cm)", 45, 35, 0.50, 0.12,
-              "Joint bank account, pensioner and spouse"),
+              "Joint bank account, pensioner and spouse", people=2),
     PhotoSize("group", "Group Photo · SHG (5.0×3.5 cm)", 50, 35, 0.34, 0.12,
-              "Self-Help Group (SHG / Bachat Gat) accounts"),
-    PhotoSize("2x2", "US Visa / OCI (2×2 in)", 51, 51, 0.60, 0.12,
+              "Self-Help Group (SHG / Bachat Gat) accounts", people=0),
+    PhotoSize("2x2", "US Visa / OCI (2×2 in)", 50.8, 50.8, 0.60, 0.12,
               "US visa, OCI card and other 51 × 51 mm photos"),
 )}
 # Framing used for user-defined sizes.
@@ -253,8 +254,8 @@ def _remove(img: Image.Image, quality: str) -> Image.Image:
         try:
             if serial:
                 with _run_locks[quality]:
-                    return remove(img, session=session, post_process_mask=True)
-            return remove(img, session=session, post_process_mask=True)
+                    return remove(img, session=session, post_process_mask=False)
+            return remove(img, session=session, post_process_mask=False)
         except Exception:
             if not on_gpu or attempt:
                 raise
@@ -262,13 +263,44 @@ def _remove(img: Image.Image, quality: str) -> Image.Image:
     raise RuntimeError("unreachable")
 
 
+def _clean_alpha(alpha: np.ndarray) -> np.ndarray:
+    """Drop stray blobs (background objects the model half-kept) but keep the
+    model's soft edges, which the browser's edge-softness and despill
+    controls work on. (rembg's own post-processing makes edges hard 0/255.)"""
+    solid = (alpha > 128).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(solid, connectivity=8)
+    if n <= 1:
+        return alpha
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    keep_ids = np.nonzero(areas >= 0.15 * areas.max())[0] + 1
+    keep = np.isin(labels, keep_ids).astype(np.uint8)
+    # Grow the kept parts a little so their soft fringe (hair) survives.
+    r = max(3, min(alpha.shape) // 60)
+    keep = cv2.dilate(keep, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1)))
+    out = alpha * keep
+    out[out < 8] = 0
+    return out.astype(np.uint8)
+
+
 def cut_out(data: bytes, quality: str = "fast") -> Cutout:
     """Remove the background and locate each head."""
-    img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
+    from .convert import open_image
+    try:
+        src = open_image(data)
+    except ValueError as e:
+        raise OSError(str(e)) from e  # unreadable/too large, not "no person"
+    img = ImageOps.exif_transpose(src)
+    if img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info):
+        # Transparent areas would turn black: put them on white first.
+        bg = Image.new("RGB", img.size, "white")
+        bg.paste(img.convert("RGBA"), mask=img.convert("RGBA").getchannel("A"))
+        img = bg
+    img = img.convert("RGB")
     img.thumbnail((MAX_INPUT_PX, MAX_INPUT_PX), Image.LANCZOS)
     started = time.monotonic()
     rgba = _remove(img, quality)
-    alpha = np.asarray(rgba.getchannel("A"))
+    alpha = _clean_alpha(np.asarray(rgba.getchannel("A")))
+    rgba.putalpha(Image.fromarray(alpha))
     if (alpha > 128).sum() < 0.02 * alpha.size:
         raise ValueError("No person found in this photo")
 

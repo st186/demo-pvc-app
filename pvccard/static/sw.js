@@ -2,7 +2,7 @@
 // open instantly. Static files are network-first (so updates show up at
 // once) with the cache as fallback; /api requests are never cached because
 // they carry people's documents.
-const CACHE = "pvc-studio-v2";
+const CACHE = "pvc-studio-v3";
 const SHELL = [
   "/", "/static/app.js", "/static/passport.js", "/static/styles.css",
   "/static/manifest.webmanifest", "/static/icons/icon-192.png", "/static/icons/icon-512.png",
@@ -22,7 +22,7 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/api/")) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: "no-cache" })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();

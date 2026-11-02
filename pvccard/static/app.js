@@ -42,7 +42,7 @@ const icon = (name) => {
   return svg;
 };
 const fmtSize = (b) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${(b / 1024).toFixed(1)} KB`);
-const stemOf = (name) => name.replace(/\.[^.]+$/, "").replace(/[^\w-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60) || "card";
+const stemOf = (name) => name.replace(/\.[^.]+$/, "").replace(/[^\p{L}\p{M}\p{N}_-]+/gu, "_").replace(/^_+|_+$/g, "").slice(0, 60) || "card";
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const cloneSide = (s) => s && { page: s.page, box: [...s.box] };
 
@@ -89,7 +89,9 @@ function renderPreset() {
   } else if (item?.type) {
     const t = typeById(item.type);
     label = item.label;
-    desc = t ? `Auto-detected · ${t.description}` : "Auto-detected · card shapes found on the page";
+    desc = t ? `Auto-detected · ${t.description}`
+      : item.type === "manual" ? "No card found · whole page selected, drag the boxes onto the card"
+      : "Auto-detected · card shapes found on the page";
   }
   $("preset-label").textContent = label;
   $("preset-desc").textContent = desc;
@@ -102,11 +104,12 @@ $("preset-btn").addEventListener("click", (e) => {
 });
 document.addEventListener("click", () => ($("preset-list").hidden = true));
 
+// The chosen preset applies to the card on screen and to files added later.
 function choosePreset(id) {
   $("preset-list").hidden = true;
+  state.preset = id;
   const item = state.active;
   if (!item) {
-    state.preset = id;
     renderPreset();
     return;
   }
@@ -160,6 +163,7 @@ async function openItem(item, { keepAdj = false } = {}) {
       suggested: { front: cloneSide(data.front), back: cloneSide(data.back) },
       result: { front: null, back: null }, status: "ready", error: null,
     });
+    if (item === state.active) state.viewPage = null;
     if (!keepAdj) item.adj = { brightness: 0, contrast: 0, saturation: 0 };
   } catch (e) {
     if (stale()) return "stale";
@@ -197,7 +201,7 @@ function renderQueue() {
   const q = $("queue");
   q.replaceChildren();
   for (const item of state.items) {
-    const [ic, text] = STATUS[item.status];
+    const [ic, text] = item.status === "cropped" && item.dirty ? ["clock", "Edited"] : STATUS[item.status];
     const pages = item.pages ? `${item.pages.length} Page${item.pages.length > 1 ? "s" : ""}` : "PDF";
     const box = el("label", { class: "checkbox", onclick: (e) => e.stopPropagation() },
       el("input", { type: "checkbox", ...(item.checked ? { checked: "" } : {}),
@@ -245,6 +249,7 @@ function setActive(item) {
   state.editSide = "front";
   state.previewSide = "front";
   state.zoom = 1;
+  state.viewPage = null;
   renderQueue();
   renderAll();
   if (item?.status === "locked") showPassword(item);
@@ -319,9 +324,13 @@ for (const b of Object.values(boxEls)) {
   for (const d of ["nw", "n", "ne", "e", "se", "s", "sw", "w"]) b.append(el("span", { class: `handle ${d}`, "data-dir": d }));
 }
 
+// Page shown in the workspace: the page tabs pick it; selecting a side jumps
+// to that side's page.
 function currentPage() {
   const item = state.active;
-  const side = item?.[state.editSide] || item?.front;
+  if (!item?.pages) return 0;
+  if (state.viewPage != null && state.viewPage < item.pages.length) return state.viewPage;
+  const side = item[state.editSide] || item.front;
   return side ? side.page : 0;
 }
 
@@ -349,8 +358,14 @@ function renderWorkspace() {
   tabs.hidden = item.pages.length < 2;
   const pageNo = currentPage();
   item.pages.forEach((_, i) => tabs.append(el("button", {
-    class: i === pageNo ? "on" : "", onclick: () => moveToPage(i),
+    class: i === pageNo ? "on" : "", onclick: () => { state.viewPage = i; renderWorkspace(); },
   }, `Page ${i + 1}`)));
+  // The side being edited is on another page: offer to bring it here.
+  const editing = item[state.editSide];
+  if (item.pages.length > 1 && editing && editing.page !== pageNo) {
+    tabs.append(el("button", { class: "move-here", onclick: () => moveToPage(pageNo) },
+      `Put ${LABEL[state.editSide]} here`));
+  }
 
   const page = item.pages[pageNo];
   if (pageImg.dataset.src !== `${item.id}:${pageNo}`) {
@@ -392,6 +407,7 @@ function moveToPage(i) {
   const side = item[state.editSide];
   if (side) side.page = i;
   else item[state.editSide] = { page: i, box: [0.1, 0.1, 0.6, 0.4] };
+  state.viewPage = i;
   markDirty(item);
   renderWorkspace();
 }
@@ -413,6 +429,7 @@ function selectEditSide(side) {
     markDirty(item);
   }
   state.editSide = side;
+  state.viewPage = item[side].page;
   renderWorkspace();
 }
 
@@ -433,7 +450,7 @@ $("zoom-fit").addEventListener("click", () => { state.zoom = 1; layoutStage(); }
 function markDirty(item) {
   item.version++;
   if (item.status === "cropped") item.dirty = true;
-  renderBar();
+  renderQueue();
   renderPreview();
 }
 
@@ -713,15 +730,21 @@ segmented($("fit-mode"), "fit", (v) => {
   const item = state.active;
   if (!item) return;
   item.fit = v;
-  if (item.status === "cropped") cropSelected();
+  markDirty(item);
+  if (item.status === "cropped" || cropping) cropSelected();
 });
 segmented($("color-mode"), "color", (v) => (state.color = v));
 
 // Quality and sharpening apply when cropping, so re-crop what is already done.
 function recropAll() {
-  for (const i of state.items) if (i.status === "cropped") { i.dirty = true; i.version++; }
-  renderBar();
-  if (state.active?.status === "cropped") cropSelected();
+  // Bump every card's version: a crop already in flight then finishes as
+  // "edited" and is redone, instead of keeping the old setting.
+  for (const i of state.items) {
+    i.version++;
+    if (i.status === "cropped") i.dirty = true;
+  }
+  renderQueue();
+  if (cropping || state.items.some((i) => i.status === "cropped")) cropSelected();
 }
 segmented($("quality-mode"), "dpi", (v) => { state.dpi = Number(v); recropAll(); });
 segmented($("sharpen-mode"), "sharpen", (v) => { state.sharpen = v === "on"; recropAll(); });
@@ -753,7 +776,8 @@ function renderBar() {
     btn.hidden = cropped && !item.dirty;
     btn.querySelector("span").textContent = targets.length > 1 ? `Crop ${targets.length} Cards` : "Crop Card";
   }
-  $("dl-row").hidden = !cropped;
+  // Only an up-to-date crop can be downloaded (or printed).
+  $("dl-row").hidden = !cropped || item.dirty;
   $("print-btn").hidden = !cropped || item.dirty;
   $("dl-back").disabled = !item?.result?.back;
 }
