@@ -32,8 +32,9 @@ UninstallDisplayName=PVC Studio
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-; Closes a running PVC Studio (Restart Manager) before updating or uninstalling.
-CloseApplications=yes
+; A running PVC Studio is stopped by StopRunningApp() in [Code] below; the
+; Restart Manager can't close its windowless server and would only prompt.
+CloseApplications=no
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
@@ -53,3 +54,35 @@ Filename: "{app}\python\pythonw.exe"; Parameters: "-m pvccard.desktop"; WorkingD
 Type: filesandordirs; Name: "{app}\models"
 Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{localappdata}\PVC Studio"
+
+[Code]
+// PVC Studio's server runs as a windowless pythonw.exe, which Windows'
+// Restart Manager can't ask to close, so Setup used to stop with "unable to
+// automatically close all applications". Stop it ourselves first: only
+// processes whose executable lives inside this install folder.
+procedure StopRunningApp();
+var
+  ResultCode: Integer;
+  Dir: String;
+begin
+  Dir := ExpandConstant('{app}');
+  if not DirExists(Dir) then
+    Exit;
+  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -ExecutionPolicy Bypass -Command "Get-Process pythonw,python -ErrorAction SilentlyContinue | ' +
+    'Where-Object { $_.Path -and $_.Path.StartsWith(''' + Dir + '\'', [StringComparison]::OrdinalIgnoreCase) } | ' +
+    'Stop-Process -Force; Start-Sleep -Milliseconds 800"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  StopRunningApp();
+  Result := '';
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    StopRunningApp();
+end;

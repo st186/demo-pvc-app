@@ -73,16 +73,37 @@ jobs:
 
           & "$dir\python\python.exe" windows\smoke_test.py http://127.0.0.1:8790
           $code = $LASTEXITCODE
-          Stop-Process -Id $app.Id -Force
           Get-Content "$env:LOCALAPPDATA\PVC Studio\logs\server.log" -Tail 15
-          exit $code
+          exit $code   # the app stays running for the next two steps
 
-      - name: Uninstall
+      - name: Reinstall while PVC Studio is running
+        shell: pwsh
+        run: |
+          # Must not stop with "unable to close applications" (seen on a real PC).
+          $setup = (Get-ChildItem dist\PVC-Studio-Setup-*.exe).FullName
+          $dir = "$env:RUNNER_TEMP\PVC Studio Install"
+          try { Invoke-RestMethod http://127.0.0.1:8790/api/passport/info | Out-Null } catch { throw "app should be running before the reinstall" }
+          $p = Start-Process $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$dir`"" -PassThru
+          if (-not $p.WaitForExit(300000)) { $p | Stop-Process -Force; throw "reinstall hung (blocked by the running app?)" }
+          if ($p.ExitCode -ne 0) { throw "reinstall failed with exit code $($p.ExitCode)" }
+          # Start it again from the reinstalled files; leave it running for the uninstall test.
+          Start-Process "$dir\python\pythonw.exe" -ArgumentList "-m","pvccard.desktop","--no-browser","--port","8790" -WorkingDirectory $dir
+          $up = $false
+          for ($i = 0; $i -lt 120 -and -not $up; $i++) {
+            Start-Sleep 1
+            try { Invoke-RestMethod http://127.0.0.1:8790/api/passport/info | Out-Null; $up = $true } catch {}
+          }
+          if (-not $up) { throw "app did not start after the reinstall" }
+
+      - name: Uninstall (while PVC Studio is running)
         shell: pwsh
         run: |
           $dir = "$env:RUNNER_TEMP\PVC Studio Install"
-          Start-Process "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
-          Start-Sleep 3
+          $p = Start-Process "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -PassThru
+          if (-not $p.WaitForExit(300000)) { throw "uninstall hung" }
+          Start-Sleep 5
+          $left = Get-Process pythonw -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$dir\*" }
+          if ($left) { throw "uninstall left PVC Studio running" }
           if (Test-Path "$dir\python") { throw "uninstall left files behind" }
           if (Test-Path "$([Environment]::GetFolderPath('Desktop'))\PVC Studio.lnk") { throw "uninstall left the shortcut" }
 

@@ -32,6 +32,10 @@ function Check($what) { if ($LASTEXITCODE -ne 0) { throw "$what failed (exit cod
 $Source = (Resolve-Path $Source).Path
 New-Item -ItemType Directory -Force -Path $Target | Out-Null
 $Target = (Resolve-Path $Target).Path
+# A running PVC Studio locks its files: stop it (only processes from this folder).
+Get-Process pythonw, python -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and $_.Path.StartsWith("$Target\", [StringComparison]::OrdinalIgnoreCase) } |
+    Stop-Process -Force -ErrorAction SilentlyContinue
 $py = Join-Path $Target "python"
 $python = Join-Path $py "python.exe"
 $tmp = Join-Path $env:TEMP "pvc-studio-build"
