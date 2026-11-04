@@ -49,6 +49,42 @@ class Recipe:
     back: Box | None = None
     front_page: int = 0
     back_page: int = 0
+    # Finds (front, back) on this particular file, overriding the fixed boxes
+    # (which stay as the fallback) when the layout moves between versions.
+    locate: Callable[[PdfInfo], tuple[Box, Box] | None] | None = None
+
+    def boxes(self, info: PdfInfo) -> tuple[Box | None, Box | None]:
+        found = self.locate(info) if self.locate else None
+        return found or (self.front, self.back)
+
+
+def _twin_cards(info: PdfInfo) -> tuple[Box, Box] | None:
+    """Cut-out front/back cards that share artwork (e-Aadhaar): the same
+    header and footer images appear twice, side by side at the same height.
+    Each card is the area those images span in its half of the page."""
+    W, H = info.sizes[0]
+    # Banners and strips, not dotted cut lines or the page-wide letter art.
+    art = [(w, h, b) for w, h, b in info.images if b[3] - b[1] >= 8 and b[2] - b[0] >= 0.3 * W / 2]
+    left, right = [], []
+    for w, h, a in art:
+        for w2, h2, c in art:
+            if (w, h) == (w2, h2) and a[2] <= W / 2 + 6 and c[0] >= W / 2 - 6 and abs(a[1] - c[1]) < 2:
+                left.append(a)
+                right.append(c)
+    if len(left) < 2:
+        return None
+
+    def span(bs: list[Box]) -> Box:
+        l, b = min(x[0] for x in bs), min(x[1] for x in bs)
+        r, t = max(x[2] for x in bs), max(x[3] for x in bs)
+        return (l, b, r, t + 1.2)  # the card edge sits just above the header art
+
+    front, back = span(left), span(right)
+    # A card is landscape; anything else means these weren't the cards.
+    for l, b, r, t in (front, back):
+        if not 1.3 < (r - l) / max(1, t - b) < 1.9:
+            return None
+    return front, back
 
 
 PAN_RE = re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b")
@@ -60,7 +96,8 @@ RECIPES: list[Recipe] = [
            front_page=0, back_page=1),
     Recipe("aadhaar", "e-Aadhaar", "UIDAI e-Aadhaar cut card strip",
            match=lambda i: "Enrolment No" in i.text or "VID :" in i.text,
-           front=(33.0, 101.5, 291.5, 264.0), back=(303.0, 101.5, 561.5, 264.0)),
+           front=(33.0, 101.5, 291.5, 264.0), back=(303.0, 101.5, 561.5, 264.0),
+           locate=_twin_cards),
     Recipe("pan", "e-PAN", "Income Tax e-PAN cut card section",
            match=lambda i: "ePAN" in i.text and bool(PAN_RE.search(i.text)),
            front=(68.3, 44.0, 302.7, 191.0), back=(309.0, 44.0, 542.7, 191.0)),

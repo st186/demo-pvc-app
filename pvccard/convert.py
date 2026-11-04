@@ -135,10 +135,11 @@ class Document:
             if recipe and doc_type != "auto":
                 _check_fits(recipe, self.sizes)
             if recipe:
+                front, back = recipe.boxes(info)
                 return Suggestion(
                     recipe.name, recipe.label,
-                    Side(recipe.front_page, _to_frac(recipe.front, self.sizes[recipe.front_page])),
-                    Side(recipe.back_page, _to_frac(recipe.back, self.sizes[recipe.back_page])))
+                    Side(recipe.front_page, _to_frac(front, self.sizes[recipe.front_page])),
+                    Side(recipe.back_page, _to_frac(back, self.sizes[recipe.back_page])))
             page_img = self.preview(0, 3000)
         else:
             page_img = self.image

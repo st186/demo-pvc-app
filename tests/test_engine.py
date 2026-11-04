@@ -3,6 +3,7 @@
 Real ID documents are never committed; sample-based tests skip without them.
 """
 
+import io
 import json
 import os
 from pathlib import Path
@@ -71,3 +72,42 @@ def test_sample(name, tmp_path):
     assert len(images) == 4  # front/back as PNG (transparent corners) and JPEG
     for f in images:
         assert Image.open(f).size == card_px(DEFAULT_DPI)
+
+
+def _pdf_with_cards(card_bottom: float) -> bytes:
+    """A4 e-Aadhaar-like page: letter art at the top, and front/back cut-out
+    cards that share header and footer images, `card_bottom` pt from the bottom."""
+    import pypdfium2 as pdfium
+    pdf = pdfium.PdfDocument.new()
+    page = pdf.new_page(595, 842)
+
+    def place(img, l, b, r, t):
+        buf = io.BytesIO()
+        img.save(buf, "JPEG")
+        obj = pdfium.PdfImage.new(pdf)
+        obj.load_jpeg(io.BytesIO(buf.getvalue()))
+        obj.set_matrix(pdfium.PdfMatrix().scale(r - l, t - b).translate(l, b))
+        page.insert_obj(obj)
+
+    header = Image.new("RGB", (920, 106), (240, 140, 60))
+    footer = Image.new("RGB", (1063, 99), (200, 30, 30))
+    place(Image.new("RGB", (1063, 706), (220, 220, 220)), 32, 580, 292, 743)   # letter art
+    for left in (33, 303):                                                       # front, back
+        place(header, left, card_bottom + 136, left + 258, card_bottom + 161)
+        place(footer, left, card_bottom, left + 259, card_bottom + 13)
+    page.gen_content()
+    out = io.BytesIO()
+    pdf.save(out)
+    return out.getvalue()
+
+
+@pytest.mark.parametrize("card_bottom", [101, 40, 160])
+def test_aadhaar_cards_found_wherever_they_sit(card_bottom):
+    from pvccard.convert import Document
+    import pypdfium2 as pdfium
+    from pvccard.recipes import BY_NAME, inspect
+    doc = Document(_pdf_with_cards(card_bottom), "a.pdf")
+    front, back = BY_NAME["aadhaar"].boxes(inspect(doc.pdf))
+    for (l, b, r, t), left in ((front, 33), (back, 303)):
+        assert abs(l - left) < 1 and abs(b - card_bottom) < 1
+        assert abs(t - (card_bottom + 161 + 1.2)) < 1
